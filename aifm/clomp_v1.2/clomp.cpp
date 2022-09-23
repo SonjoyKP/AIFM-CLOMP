@@ -78,9 +78,20 @@ ADDITIONAL BSD NOTICE
    endorsement purposes.
 ******************************************************************************/
 
+extern "C" {
+  #include <runtime/runtime.h>
+}
+
+#include "deref_scope.hpp"
+#include "dataframe_vector.hpp"
+#include "stats.hpp"
+#include "device.hpp"
+#include "helpers.hpp"
+#include "manager.hpp"
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <omp.h>
+//#include <omp.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/time.h>
@@ -92,6 +103,9 @@ ADDITIONAL BSD NOTICE
 // int rank=0;
 // int numtasks=0;
 // #endif
+
+using namespace far_memory;
+using namespace std;
 
 /* Command line parameters, see usage info (initially -1 for sanity check)*/
 long CLOMP_numThreads = -2;       /* > 0 or -1 valid */
@@ -113,6 +127,8 @@ typedef struct _Zone
     long zoneId;
     long partId;
     double value;
+    //struct _Zone *nextZone;
+
     struct _Zone *nextZone;
 } Zone;
 
@@ -123,8 +139,11 @@ typedef struct _Part
     long partId;
     long zoneCount;
     long update_count;  
+    //Zone *firstZone;
+    //Zone *lastZone;
     Zone *firstZone;
     Zone *lastZone;
+
     double deposit_ratio;
     double residue;
     double expected_first_value; /* Used to check results */
@@ -164,56 +183,6 @@ double CLOMP_error_bound = 0.0;
  * probably is not possible).   May be tighter than needed.
  */
 double CLOMP_tightest_error_bound = 0.0;
-
-// #ifdef WITH_MPI
-// /* Redirect printf and fprintf to MPI-aware versions.   Prevents having
-//  * to rewrite most of the CLOMP I/O code.
-//  */
-// #undef printf
-// #define printf clomp_mpi_printf
-// #undef fprintf
-// #define fprintf clomp_mpi_fprintf
-
-// void clomp_mpi_printf (const char *fmt, ...)
-// {
-//     int ret;
-//     va_list args;
-
-//     /* Only output from rank 0 for now */
-//     if (rank == 0)
-//     {
-// 	va_start (args, fmt);
-// 	ret = vprintf (fmt, args);
-// 	va_end (args);
-//     }
-// }
-
-
-// void clomp_mpi_fprintf (FILE *out, const char *fmt, ...)
-// {
-//     int ret;
-//     va_list args;
-
-//     /* Only output from rank 0 for now */
-//     if (rank == 0)
-//     {
-// 	va_start (args, fmt);
-// 	ret = vfprintf (out, fmt, args);
-// 	va_end (args);
-//     }
-// }
-
-// /* Need a way for tasks other than task 0 to print something for debugging */
-// void unfiltered_printf (const char *fmt, ...)
-// {
-//     int ret;
-//     va_list args;
-
-//     va_start (args, fmt);
-//     ret = vprintf (fmt, args);
-//     va_end (args);
-// }
-// #endif
 
 void print_usage()
 {
@@ -791,41 +760,6 @@ void do_calc_deposit_only()
     }
 }
 
-/*
- * --------------------------------------------------------------------
- * Variation: OMP Barrier
- * --------------------------------------------------------------------
- */
-
-/* Calculate time required for just one barrier per loop. 
- * Some implementations have long > 35us/barrier for large number of threads.
- */
-void do_omp_barrier_only(long num_iterations)
-{
-#pragma omp parallel
-    {
-	/* Thread private variations */
-	long iteration, subcycle;
-	
-	/* Do all the iterations */
-	for (iteration = 0; iteration < num_iterations; iteration ++)
-	{
-	    /* 10 subcycles to every iteration, omp barrier in each one */
-	    for (subcycle = 0; subcycle < 10; subcycle++)
-	    {
-		/* Just to omp barrier */
-#pragma omp barrier
-	    }
-	}
-    }
-}
-
-/*
- * --------------------------------------------------------------------
- * Variation: Serial Ref
- * --------------------------------------------------------------------
- */
-
 /* Do module one's work serially (contains 1 subcycle) */
 void serial_ref_module1()
 {
@@ -963,1002 +897,6 @@ void do_serial_ref_version()
     /* Do the specified number of iterations */
     for (iteration = 0; iteration < CLOMP_num_iterations; iteration ++)
 	serial_ref_cycle();
-}
-
-/*
- * --------------------------------------------------------------------
- * Variation: Static OMP
- * --------------------------------------------------------------------
- */
-
-/* Do module one's work using "omp parallel for schedule(static)"
- * (contains 1 subcycle) 
- */
-void static_omp_module1()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module two's work using "omp parallel for schedule(static)"
- * (contains 2 subcycles) 
- */
-void static_omp_module2()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module three's work using "omp parallel for schedule(static)"
- * (contains 3 subcycles) 
- */
-void static_omp_module3()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module four's work using "omp parallel for schedule(static)"
- * (contains 4 subcycles) 
- */
-void static_omp_module4()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(static)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do one cycle (10 subcycles) using "omp parallel for schedule(static)" */
-void static_omp_cycle()
-{
-    /* Emulate calls to 4 different packages, do 10 subcycles total */
-    static_omp_module1();
-    static_omp_module2();
-    static_omp_module3();
-    static_omp_module4();
-}
-
-/* Do all the cycles (10 subcycles/cycle) using
- * "omp parallel for schedule(static)" 
- */
-void do_static_omp_version()
-{
-    long iteration;
-
-    /* Do the specified number of iterations */
-    for (iteration = 0; iteration < CLOMP_num_iterations; iteration ++)
-    {
-	static_omp_cycle();
-    }
-}
-
-
-
-/*
- * --------------------------------------------------------------------
- * Variation: Dynamic OMP
- * --------------------------------------------------------------------
- */
-
-/* Do module one's work using "omp parallel for schedule(dynamic)"
- * (contains 1 subcycle) 
- */
-void dynamic_omp_module1()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module two's work using "omp parallel for schedule(dynamic)"
- * (contains 2 subcycles) 
- */
-void dynamic_omp_module2()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module three's work using "omp parallel for schedule(dynamic)"
- * (contains 3 subcycles) 
- */
-void dynamic_omp_module3()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do module four's work using "omp parallel for schedule(dynamic)"
- * (contains 4 subcycles) 
- */
-void dynamic_omp_module4()
-{
-    double deposit;
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
-
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
-    deposit = calc_deposit ();
-    
-    /* Scan through zones and add appropriate deposit to each zone */
-#pragma omp parallel for private (pidx) schedule(dynamic)
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-
-/* Do one cycle (10 subcycles) using "omp parallel for schedule(dynamic)" */
-void dynamic_omp_cycle()
-{
-    /* Emulate calls to 4 different packages, do 10 subcycles total */
-    dynamic_omp_module1();
-    dynamic_omp_module2();
-    dynamic_omp_module3();
-    dynamic_omp_module4();
-}
-
-
-/* Do all the cycles (10 subcycles/cycle) using
- * "omp parallel for schedule(dynamic)" 
- */
-void do_dynamic_omp_version()
-{
-    long iteration;
-
-    /* Do the specified number of iterations */
-    for (iteration = 0; iteration < CLOMP_num_iterations; iteration ++)
-    {
-	dynamic_omp_cycle();
-    }
-}
-
-
-/*
- * --------------------------------------------------------------------
- * Variation: Manual OMP
- * --------------------------------------------------------------------
- */
-
-/* Do module one's work using manual thread management (contains 1 subcycle) 
- */
-void manual_omp_module1(int startPidx, int endPidx)
-{
-    static double deposit;   /* Must be static! */
-    long pidx;
-    Part *part;
-
-    /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-}
-
-/* Do module two's work using manual thread management (contains 2 subcycles) 
- */
-void manual_omp_module2(int startPidx, int endPidx)
-{
-    static double deposit;   /* Must be static! */
-    long pidx;
-    Part *part;
-
-    /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-
-    /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-}
-
-/* Do module three's work using manual thread management (contains 3 subcycles)
- */
-void manual_omp_module3(int startPidx, int endPidx)
-{
-    static double deposit;   /* Must be static! */
-    long pidx;
-    Part *part;
-
-    /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-}
-
-/* Do module four's work using manual thread management (contains 4 subcycles)
- */
-void manual_omp_module4(int startPidx, int endPidx)
-{
-    static double deposit;   /* Must be static! */
-    long pidx;
-    Part *part;
-
-    /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-
-    /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-
-    /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
-
-/* Barrier required to make sure all threads are finished with their portion
- * of their calculation before we use the values they calculate.
- */
-#pragma omp barrier
-
-/* Have only one of the threads calculate the deposit */
-#pragma omp single
-    {
-	/* Calculate deposit for this subcycle based on last subcycle's 
-	 * residue 
-	 *
-	 * Must have static variable 'deposit' so other thread's calls into 
-	 * this routine can see the same deposit update.
-	 */
-	deposit = calc_deposit ();
-
-    }
-    /* Implicit "omp barrier" at end of "omp single".   Needed so
-     * loop below gets correct deposit value.  */
-
-    /* Scan through zones and add appropriate deposit to each zone.
-     * Use startPidx to pick parts to operate on (since many threads
-     * calling this loop and doing manual work sharing).
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-}
-
-/* Do one cycle (10 subcycles) using manual thread management
- */
-void manual_omp_cycle(int startPidx, int endPidx)
-{
-    /* Emulate calls to 4 different packages, do 10 subcycles total */
-    manual_omp_module1(startPidx, endPidx);
-    manual_omp_module2(startPidx, endPidx);
-    manual_omp_module3(startPidx, endPidx);
-    manual_omp_module4(startPidx, endPidx);
-}
-
-/* Do all the cycles (10 subcycles/cycle) using manual thread management
- */
-void do_manual_omp_version(long num_iterations)
-{
-    /* Spawn threads here and manually partition work inside code
-     * using thread_id to calculate startPidx and endPidx.
-     */
-#pragma omp parallel 
-    {
-	long iteration;
-	int startPidx, endPidx;
-	double dparts_per_thread;
-
-	/* Use thread_id to determine exactly which parts each
-	 * thread should execute.
-	 */
-	int thread_id = 0;
-	int numThreads = 1;
-
-	/* Calculate the avg number of parts per zone to use */
-	dparts_per_thread = ((double)(CLOMP_numParts))/((double)(numThreads));
-
-	/* Force there to be at least one part per thread */
-	if (dparts_per_thread < 1.0)
-	    dparts_per_thread = 1.0;
-	
-	/* Use thread_id to calculate starting part (round to nearest) */
-	startPidx = (int) nearbyint(((double)thread_id) * dparts_per_thread);
-
-	/* Use thread_id+1 to calculate next theads starting address and 
-	 * subtract one to get our ending point (round to nearest).
-	 */
-	endPidx = (int) nearbyint(((double)thread_id+1)*dparts_per_thread)-1;
-
-	/* Prevent endPidx from exceeding CLOMP_numParts - 1.
-	 * This may cause there to be no work for this thread
-	 */
-	if (endPidx >= CLOMP_numParts)
-	    endPidx = CLOMP_numParts-1;
-
-	/* Warn users if exceed number of parts */
-	if (startPidx >= CLOMP_numParts)
-	{
-	    printf ("*** No parts available for thread %i\n", thread_id);
-	}
-
-	/* Do the specified number of iterations */
-	/* All threads do this loop independently.   
-	 * Internal omp barriers will keep them in sync.
-	 */
-	for (iteration = 0; iteration < num_iterations; iteration ++)
-	{
-	    manual_omp_cycle(startPidx, endPidx);
-	}
-    }
-}
-
-
-/*
- * --------------------------------------------------------------------
- * Variation: Bestcase OMP
- * --------------------------------------------------------------------
- */
-
-/* Do bestcase variation (doesn't give correct answers)
- * of module one's work using "omp parallel for schedule(static)"
- */
-void bestcase_omp_module1(int startPidx, int endPidx, double deposit)
-{
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do bestcase variation (doesn't give correct answers)
- * of module two's work using "omp parallel for schedule(static)"
- */
-void bestcase_omp_module2(int startPidx, int endPidx, double deposit)
-{
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
-
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do bestcase variation (doesn't give correct answers)
- * of module three's work using "omp parallel for schedule(static)"
- */
-void bestcase_omp_module3(int startPidx, int endPidx, double deposit)
-{
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	    update_part (partArray[pidx], deposit);
-}
-
-/* Do bestcase variation (doesn't give correct answers)
- * of module four's work using "omp parallel for schedule(static)"
- */
-void bestcase_omp_module4(int startPidx, int endPidx, double deposit)
-{
-    long pidx;
-
-    /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-
-    /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
-    /* Do bestcase variation.   Leaves out all omp barriers and omp singles
-     * (thus gives wrong answers) and avoid pratically all threading overhead.
-     * This should give an (probably unachievable) bestcase on loop 
-     * runtime and cache effects and shared memory bandwith limitations 
-     * can still prevent perfect speedup.
-     * The deposit is calculated elsewhere so we can leave out thread barriers
-     * and not trip the threading sanity checks in calc_deposit().
-     */
-    for (pidx = startPidx; pidx <= endPidx; pidx++)
-	update_part (partArray[pidx], deposit);
-}
-
-/* Do one cycle (10 subcycles) using bestcase variation 
- * (doesn't give correct answers)
- */
-void bestcase_omp_cycle(int startPidx, int endPidx, double deposit)
-{
-    /* Emulate calls to 4 different packages, do 10 subcycles total */
-    bestcase_omp_module1(startPidx, endPidx, deposit);
-    bestcase_omp_module2(startPidx, endPidx, deposit);
-    bestcase_omp_module3(startPidx, endPidx, deposit);
-    bestcase_omp_module4(startPidx, endPidx, deposit);
-}
-
-/* Do bestcase version of omp parallel for schedule(static)*/
-void do_bestcase_omp_version(long num_iterations)
-{
-    long iter, subcycle;
-    double deposit;
-
-    /* Use bogus deposit for bestcase case */
-    deposit = (1.0 + CLOMP_max_residue) / CLOMP_numParts;
-
-    /* Spawn threads here and manually partition work inside code
-     * using thread_id to calculate startPidx and endPidx.
-     */
-#pragma omp parallel 
-    {
-	long iteration;
-	int startPidx, endPidx;
-	double dparts_per_thread;
-
-	/* Use thread_id to determine exactly which parts each
-	 * thread should execute.
-	 */
-	int thread_id = 0;
-	int numThreads = 1;
-
-	/* Calculate the avg number of parts per zone to use */
-	dparts_per_thread = ((double)(CLOMP_numParts))/((double)(numThreads));
-
-	/* Force there to be at least one part per thread */
-	if (dparts_per_thread < 1.0)
-	    dparts_per_thread = 1.0;
-	
-	/* Use thread_id to calculate starting part (round to nearest) */
-	startPidx = (int) nearbyint(((double)thread_id) * dparts_per_thread);
-
-	/* Use thread_id+1 to calculate next theads starting address and 
-	 * subtract one to get our ending point (round to nearest).
-	 */
-	endPidx = (int) nearbyint(((double)thread_id+1)*dparts_per_thread)-1;
-
-	/* Prevent endPidx from exceeding CLOMP_numParts - 1.
-	 * This may cause there to be no work for this thread
-	 */
-	if (endPidx >= CLOMP_numParts)
-	    endPidx = CLOMP_numParts-1;
-
-	/* Warn users if exceed number of parts */
-	if (startPidx >= CLOMP_numParts)
-	{
-	    printf ("*** No parts available for thread %i\n", thread_id);
-	}
-
-	/* Do the specified number of iterations */
-	/* All threads do this loop independently.   
-	 * No barriers in upper bound calculation, so threads
-	 * probably will not be in sync.
-	 */
-	for (iteration = 0; iteration < num_iterations; iteration ++)
-	{
-	    bestcase_omp_cycle(startPidx, endPidx, deposit);
-	}
-    }
-
-    /* Outside parallel region, do all the calc_deposit calls to 
-     * get upper bound on that portion of the calculation without having
-     * to omp barrier and omp single.   calc_deposit does a bunch of 
-     * sanity checks to detect improper threading.
-     */
-    for (iter = 0; iter < num_iterations; iter ++)
-    {
-	/* 10 subcycles to every iteration,  calc_deposit call in each one */
-	for (subcycle = 0; subcycle < 10; subcycle++)
-	{
-	    /* Fool calc_deposit sanity checks for this timing measurement */
-	    partArray[0]->update_count = 1;
-	    
-	    /* Calc value, write into first zone's value, in order
-	     * to prevent compiler optimizing away
-	     */
-	    partArray[0]->firstZone->value = calc_deposit();
-	}
-    }
 }
 
 
@@ -2100,39 +1038,21 @@ int main (int argc, char *argv[])
     double diterations;
     struct timeval calc_deposit_start_ts, calc_deposit_end_ts;
     double calc_deposit_seconds;
-    struct timeval omp_barrier_start_ts, omp_barrier_end_ts;
-    double omp_barrier_seconds;
+    //struct timeval omp_barrier_start_ts, omp_barrier_end_ts;
+    //double omp_barrier_seconds;
     struct timeval serial_ref_start_ts, serial_ref_end_ts;
     double serial_ref_seconds;
-    struct timeval bestcase_omp_start_ts, bestcase_omp_end_ts;
-    double bestcase_omp_seconds;
-    struct timeval static_omp_start_ts, static_omp_end_ts;
-    double static_omp_seconds;
-    struct timeval manual_omp_start_ts, manual_omp_end_ts;
-    double manual_omp_seconds;
-    struct timeval dynamic_omp_start_ts, dynamic_omp_end_ts;
-    double dynamic_omp_seconds;
+    // struct timeval bestcase_omp_start_ts, bestcase_omp_end_ts;
+    // double bestcase_omp_seconds;
+    // struct timeval static_omp_start_ts, static_omp_end_ts;
+    // double static_omp_seconds;
+    // struct timeval manual_omp_start_ts, manual_omp_end_ts;
+    // double manual_omp_seconds;
+    // struct timeval dynamic_omp_start_ts, dynamic_omp_end_ts;
+    // double dynamic_omp_seconds;
     int bidx, aidx;
     Part *sorted_part_list;
     Part *part;
-// #ifdef WITH_MPI
-//     int provided, rc;
-// #endif
-
-// #ifdef WITH_MPI
-//     /* Clomp -DWITH_MPI uses MPI_THREAD_FUNNELED model */
-//     rc = MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-//     if (rc != MPI_SUCCESS) 
-//     {
-// 	fprintf (stderr, 
-// 		 "Error starting MPI_THREAD_FUNNELED program rc %i."
-// 		 "Terminating.\n",
-// 		 rc);
-// 	MPI_Abort(MPI_COMM_WORLD, rc);
-//     }
-//     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
-//     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-// #endif
 
     /* Get executable name by pointing to argv[0] */
     CLOMP_exe_name = argv[0];
@@ -2178,18 +1098,6 @@ int main (int argc, char *argv[])
 	printf (" %s", argv[aidx]);
     }
     printf ("\n");
-
-// #ifdef WITH_MPI
-//     if (provided == MPI_THREAD_FUNNELED)
-//     {
-// 	printf ("       Invoke MPI: YES (MPI_THREAD_FUNNELED)\n");
-//     }
-//     else
-//     {
-// 	printf ("       Invoke MPI: YES (provided returned %i\n", provided);
-//     }
-//     printf ("        MPI Tasks: %i\n", numtasks);
-// #endif
     
 
     /* Print out command line arguments read in */
@@ -2239,13 +1147,6 @@ int main (int argc, char *argv[])
     printf ("        zoneSize: %ld\n", CLOMP_zoneSize);
 
 
-    /* Set the number of threads for the allocate seciton to what user 
-     * specified.   If threads are used, it may lay out the memory on
-     * NUMA system better for threaded computation.
-     */
-    //omp_set_num_threads ((int)CLOMP_allocThreads);
-
-
     /* Allocate part pointer array */
     partArray = (Part **) malloc (CLOMP_numParts * sizeof (Part*));
     if (partArray == NULL)
@@ -2269,7 +1170,7 @@ int main (int argc, char *argv[])
      * Do allocations in thread (allocThreads may be set to 1 for allocate)
      * to allow potentially better memory layout for threads
      */
-#pragma omp parallel for private(partId) schedule(static) 
+//#pragma omp parallel for private(partId) schedule(static) 
     for (partId = 0; partId < CLOMP_numParts; partId++)
     {
 	Part *part;
@@ -2285,7 +1186,7 @@ int main (int argc, char *argv[])
 	addPart(part, partId);
     }
 
-#pragma omp parallel for private(partId) schedule(static) 
+//#pragma omp parallel for private(partId) schedule(static) 
     /* Create and add zones to parts.
      * Do allocations in thread (allocThreads may be set to 1 for allocate)
      * to allow potentially better memory layout for threads
@@ -2479,29 +1380,6 @@ int main (int argc, char *argv[])
 					    &calc_deposit_start_ts, 
 					    &calc_deposit_end_ts, -1.0, -1.0);
     
-
-    /* --------- Start OMP Barrier overhead measurement --------- */
-    /* Do one cycle outside timer loop to warm up code and (for OpenMP cases)
-     * allow the OpenMP system to initialize (which can be expensive, skewing
-     * the measurments for small runtimes */
-    do_omp_barrier_only(1);
-
-    /* Calculate just the overhead of one OMP barrier per loop. */
-    print_pseudocode ("OMP Barrier", "------ Start OMP Barrier Pseudocode ------");
-    print_pseudocode ("OMP Barrier", "/* Measure *only* OMP barrier overhead.*/");
-    print_pseudocode ("OMP Barrier", "#pragma omp barrier");
-    print_pseudocode ("OMP Barrier", "------- End OMP Barrier Pseudocode -------");
-    print_start_message ("OMP Barrier");
-// #ifdef WITH_MPI
-//     /* Ensure all MPI tasks run OpenMP at the same time */
-//     MPI_Barrier (MPI_COMM_WORLD);
-// #endif
-    get_timestamp (&omp_barrier_start_ts);
-    do_omp_barrier_only(CLOMP_num_iterations);
-    get_timestamp (&omp_barrier_end_ts);
-    omp_barrier_seconds = print_timestats ("OMP Barrier", 
-					    &omp_barrier_start_ts, 
-					    &omp_barrier_end_ts, -1.0, -1.0);
     
     /* --------- Start Serial Ref benchmark measurement --------- */
     
@@ -2541,183 +1419,6 @@ int main (int argc, char *argv[])
 
 
 
-
-    /* --------- Start Bestcase OMP  benchmark measurement --------- */
-
-    /* Do one cycle outside timer loop to warm up code and (for OpenMP cases)
-     * allow the OpenMP system to initialize (which can be expensive, skewing
-     * the measurments for small runtimes */
-    reinitialize_parts();
-    do_bestcase_omp_version(1);
-
-    /* Reinitialize parts and warm up cache by doing dummy update */
-    reinitialize_parts();
-
-    /* Do the OMP Bestcase OMP version of calculation and measure time*/
-    print_pseudocode ("Bestcase OMP", "------ Start Bestcase OMP Pseudocode ------");
-    print_pseudocode ("Bestcase OMP", "/* Measure the bestcase ref loop runtime for */");
-    print_pseudocode ("Bestcase OMP", "/* \"free\" threading the following code: */");
-    print_pseudocode ("Bestcase OMP", "deposit = calc_deposit ();");
-    print_pseudocode ("Bestcase OMP", "for (pidx = 0; pidx < numParts; pidx++)");
-    print_pseudocode ("Bestcase OMP", "  update_part (partArray[pidx], deposit);");
-    print_pseudocode ("Bestcase OMP", "------- End Bestcase OMP Pseudocode -------");
-    print_start_message ("Bestcase OMP");
-// #ifdef WITH_MPI
-//     /* Ensure all MPI tasks run OpenMP at the same time */
-//     MPI_Barrier (MPI_COMM_WORLD);
-// #endif
-    get_timestamp (&bestcase_omp_start_ts);
-    do_bestcase_omp_version(CLOMP_num_iterations);
-    get_timestamp (&bestcase_omp_end_ts);
-
-    /* Print out serial time stats and capture time.
-     * Also print speedup compared to serial run time.
-     */
-    bestcase_omp_seconds = print_timestats ("Bestcase OMP", 
-					      &bestcase_omp_start_ts, 
-					      &bestcase_omp_end_ts,
-					      serial_ref_seconds,
-					      -1.0);
-
-
-
-
-    /* --------- Start Static OMP  benchmark measurement --------- */
-
-    /* Do one cycle outside timer loop to warm up code and (for OpenMP cases)
-     * allow the OpenMP system to initialize (which can be expensive, skewing
-     * the measurments for small runtimes */
-    reinitialize_parts();
-    static_omp_cycle();
-
-    /* Reinitialize parts and warm up cache by doing dummy update */
-    reinitialize_parts();
-
-    /* Do the OMP Static OMP version of calculation and measure time*/
-    print_pseudocode ("Static OMP", "------ Start Static OMP Pseudocode ------");
-    print_pseudocode ("Static OMP", "/* Use OpenMP parallel for schedule(static) on original loop. */");
-    print_pseudocode ("Static OMP", "deposit = calc_deposit ();");
-    print_pseudocode ("Static OMP", "#pragma omp parallel for private (pidx) schedule(static)");
-    print_pseudocode ("Static OMP", "for (pidx = 0; pidx < numParts; pidx++)");
-    print_pseudocode ("Static OMP", "  update_part (partArray[pidx], deposit);");
-    print_pseudocode ("Static OMP", "------- End Static OMP Pseudocode -------");
-    print_start_message ("Static OMP");
-//#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    //MPI_Barrier (MPI_COMM_WORLD);
-//#endif
-    get_timestamp (&static_omp_start_ts);
-    do_static_omp_version();
-    get_timestamp (&static_omp_end_ts);
-
-    /* Check data for consistency and print out data stats*/
-    print_data_stats ("Static OMP");
-
-    /* Print out serial time stats and capture time.
-     * Also print speedup compared to serial run time.
-     */
-    static_omp_seconds = print_timestats ("Static OMP", 
-					  &static_omp_start_ts, 
-					  &static_omp_end_ts,
-					  serial_ref_seconds,
-					  bestcase_omp_seconds);
-
-    /* --------- Start Dynamic OMP  benchmark measurement --------- */
-
-    /* Do one cycle outside timer loop to warm up code and (for OpenMP cases)
-     * allow the OpenMP system to initialize (which can be expensive, skewing
-     * the measurments for small runtimes */
-    reinitialize_parts();
-    dynamic_omp_cycle();
-
-    /* Reinitialize parts and warm up cache by doing dummy update */
-    reinitialize_parts();
-
-    /* Do the OMP Dynamic OMP version of calculation and measure time*/
-    print_pseudocode ("Dynamic OMP", "------ Start Dynamic OMP Pseudocode ------");
-    print_pseudocode ("Dynamic OMP", "/* Use OpenMP parallel for schedule(dynamic) on orig loop. */");
-    print_pseudocode ("Dynamic OMP", "deposit = calc_deposit ();");
-    print_pseudocode ("Dynamic OMP", "#pragma omp parallel for private (pidx) schedule(dynamic)");
-    print_pseudocode ("Dynamic OMP", "for (pidx = 0; pidx < numParts; pidx++)");
-    print_pseudocode ("Dynamic OMP", "  update_part (partArray[pidx], deposit);");
-    print_pseudocode ("Dynamic OMP", "------- End Dynamic OMP Pseudocode -------");
-    print_start_message ("Dynamic OMP");
-//#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    //MPI_Barrier (MPI_COMM_WORLD);
-//#endif
-    get_timestamp (&dynamic_omp_start_ts);
-    do_dynamic_omp_version();
-    get_timestamp (&dynamic_omp_end_ts);
-
-    /* Check data for consistency and print out data stats*/
-    print_data_stats ("Dynamic OMP");
-
-    /* Print out serial time stats and capture time.
-     * Also print speedup compared to serial run time.
-     */
-    dynamic_omp_seconds = print_timestats ("Dynamic OMP", 
-					   &dynamic_omp_start_ts, 
-					   &dynamic_omp_end_ts,
-					   serial_ref_seconds,
-					   bestcase_omp_seconds);
-
-
-    /* --------- Start Manual OMP  benchmark measurement --------- */
-
-    /* Do one cycle outside timer loop to warm up code and (for OpenMP cases)
-     * allow the OpenMP system to initialize (which can be expensive, skewing
-     * the measurments for small runtimes */
-    reinitialize_parts();
-    do_manual_omp_version(1);
-
-    /* Reinitialize parts and warm up cache by doing dummy update */
-    reinitialize_parts();
-
-    /* Do the OMP Manual OMP version of calculation and measure time*/
-    print_pseudocode ("Manual OMP", "------ Start Manual OMP Pseudocode ------");
-    print_pseudocode ("Manual OMP", "/* At top level, spawn threads and manually partition parts*/");
-    print_pseudocode ("Manual OMP", "#pragma omp parallel");
-    print_pseudocode ("Manual OMP", "{");
-    print_pseudocode ("Manual OMP", "   int startPidx = ... /* slice based on thread_id*/");
-    print_pseudocode ("Manual OMP", "   for (iter = 0; iter < num_iterations; iter++) ");
-    print_pseudocode ("Manual OMP", "      do_iter(startPidx, endPidx);");
-    print_pseudocode ("Manual OMP", "}" );
-    print_pseudocode ("Manual OMP", "..." );
-    print_pseudocode ("Manual OMP", "do_modN(int startPidx, int endPidx) /*do_iter() calls*/" );
-    print_pseudocode ("Manual OMP", "{");
-    print_pseudocode ("Manual OMP", "  #pragma omp barrier /* All threads must finish first!*/");
-    print_pseudocode ("Manual OMP", "  #pragma omp single  /* Only one thread calcs deposit!*/");
-    print_pseudocode ("Manual OMP", "  {");
-    print_pseudocode ("Manual OMP", "    deposit = calc_deposit (); /* Deposit shared by threads */");
-    print_pseudocode ("Manual OMP", "  }  /* Implicit omp barrier at end of omp single */");
-    print_pseudocode ("Manual OMP", "  /* All threads execute loop working just on their parts*/");
-    print_pseudocode ("Manual OMP", "  for (pidx = startPidx; pidx <= endPidx; pidx++)");
-    print_pseudocode ("Manual OMP", "    update_part (partArray[pidx], deposit);"); 
-    print_pseudocode ("Manual OMP", "}");
-    print_pseudocode ("Manual OMP", "------- End Manual OMP Pseudocode -------");
-    print_start_message ("Manual OMP");
-//#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    //MPI_Barrier (MPI_COMM_WORLD);
-//#endif
-    get_timestamp (&manual_omp_start_ts);
-    do_manual_omp_version(CLOMP_num_iterations);
-    get_timestamp (&manual_omp_end_ts);
-
-    /* Check data for consistency and print out data stats*/
-    print_data_stats ("Manual OMP");
-
-    /* Print out serial time stats and capture time.
-     * Also print speedup compared to serial run time.
-     */
-    manual_omp_seconds = print_timestats ("Manual OMP", 
-					  &manual_omp_start_ts, 
-					  &manual_omp_end_ts,
-					  serial_ref_seconds,
-					  bestcase_omp_seconds);
-
-
     printf ("----------- Comma-delimited summary ----------\n");
     printf ("%s %ld %ld %ld %ld %ld %ld %ld, calc_deposit, OMP Barrier, Serial Ref, Bestcase OMP, Static OMP, Dynamic OMP, Manual OMP\n",
 	    CLOMP_exe_name,
@@ -2729,61 +1430,34 @@ int main (int argc, char *argv[])
 	    CLOMP_flopScale, 
 	    CLOMP_timeScale);
 
-    printf ("Runtime, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f\n",
+    printf ("Runtime, %7.3f, %7.3f\n",
 	    calc_deposit_seconds, 
-	    omp_barrier_seconds, 
-	    serial_ref_seconds,
-	    bestcase_omp_seconds, 
-	    static_omp_seconds, 
-	    dynamic_omp_seconds,
-	    manual_omp_seconds);
+	    //omp_barrier_seconds, 
+	    serial_ref_seconds);
+	    // bestcase_omp_seconds, 
+	    // static_omp_seconds, 
+	    // dynamic_omp_seconds,
+	    // manual_omp_seconds);
 
 #undef us_loop
 #define us_loop(sec) (((sec*1000000.0)/((double)CLOMP_num_iterations * 10.0)))
-    printf ("us/Loop, %7.2f, %7.2f, %7.2f, %7.2f, %7.2f, %7.2f, %7.2f\n",
+    printf ("us/Loop, %7.2f, %7.2f\n",
 	    us_loop(calc_deposit_seconds), 
-	    us_loop(omp_barrier_seconds), 
-	    us_loop(serial_ref_seconds),
-	    us_loop(bestcase_omp_seconds),
-	    us_loop(static_omp_seconds), 
-	    us_loop(dynamic_omp_seconds),
-	    us_loop(manual_omp_seconds));
+	    //us_loop(omp_barrier_seconds), 
+	    us_loop(serial_ref_seconds));
+	    // us_loop(bestcase_omp_seconds),
+	    // us_loop(static_omp_seconds), 
+	    // us_loop(dynamic_omp_seconds),
+	    // us_loop(manual_omp_seconds));
 
 #undef speedup
 #define speedup(sec) ((serial_ref_seconds/sec))
-    printf ("Speedup,     N/A,     N/A, %7.1f, %7.1f, %7.1f, %7.1f, %7.1f\n",
-	    speedup(serial_ref_seconds),
-	    speedup(bestcase_omp_seconds),
-	    speedup(static_omp_seconds), 
-	    speedup(dynamic_omp_seconds),
-	    speedup(manual_omp_seconds));
-
-#undef efficacy
-#define efficacy(sec) (((bestcase_omp_seconds/sec)*100.0))
-    printf ("Efficacy,    N/A,     N/A,     N/A,  %6.1f%%, %6.1f%%, %6.1f%%, %6.1f%%\n",
-	    efficacy(bestcase_omp_seconds),
-	    efficacy(static_omp_seconds), 
-	    efficacy(dynamic_omp_seconds),
-	    efficacy(manual_omp_seconds));
-
-#undef overhead
-#define overhead(sec) (((sec-bestcase_omp_seconds)*1000000.0)/((double)CLOMP_num_iterations * 10.0))
-    printf ("Overhead,    N/A,     N/A,     N/A, %7.2f, %7.2f, %7.2f, %7.2f\n",
-	    overhead(bestcase_omp_seconds),
-	    overhead(static_omp_seconds), 
-	    overhead(dynamic_omp_seconds),
-	    overhead(manual_omp_seconds));
+    printf ("Speedup,     N/A,     N/A, %7.1f\n",
+	    speedup(serial_ref_seconds));
 
     {
 	char mpi_marker[100]="";
-//#ifdef WITH_MPI
-	/* Denote how many MPI tasks were used to generate stats if
-	 * actually ran more than 1 MPI task.
-	 */
-	//if (numtasks > 1)
-	    //sprintf (mpi_marker, "%d MPI X ", numtasks);
-//#endif
-    printf ("CORAL RFP, %s%ld %ld %ld %ld %ld %ld %ld, %.2f, %.2f, %.1f, %.2f, %.1f, %.2f, %.1f, %.2f, %.1f\n",
+    printf ("CORAL RFP, %s%ld %ld %ld %ld %ld %ld %ld, %.2f\n",
 	    mpi_marker,
 	    CLOMP_numThreads,
 	    CLOMP_inputAllocThreads, 
@@ -2792,20 +1466,8 @@ int main (int argc, char *argv[])
 	    CLOMP_zoneSize, 
 	    CLOMP_flopScale, 
 	    CLOMP_timeScale,
-	    us_loop(serial_ref_seconds),
-	    us_loop(omp_barrier_seconds),
-	    speedup(bestcase_omp_seconds),
-	    overhead(static_omp_seconds), 
-	    speedup(static_omp_seconds),
-	    overhead(dynamic_omp_seconds),
-	    speedup(dynamic_omp_seconds),
-	    overhead(manual_omp_seconds),
-	    speedup(manual_omp_seconds));
+	    us_loop(serial_ref_seconds));
     }
-
-// #ifdef WITH_MPI
-//     MPI_Finalize();
-// #endif
 
     return (0);
 }
