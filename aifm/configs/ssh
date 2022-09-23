@@ -1,5 +1,5 @@
-MEM_SERVER_SSH_IP=128.110.154.181
-MEM_SERVER_SSH_USER=zainruan
+MEM_SERVER_SSH_IP=hp076.utah.cloudlab.us
+MEM_SERVER_SSH_USER=SonjoyKP
 
 function ssh_execute {
     ssh $MEM_SERVER_SSH_USER@$MEM_SERVER_SSH_IP $1
