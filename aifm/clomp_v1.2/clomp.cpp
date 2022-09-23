@@ -86,12 +86,12 @@ ADDITIONAL BSD NOTICE
 #include <sys/time.h>
 #include <time.h>
 #include <math.h>
-#ifdef WITH_MPI
-#include <mpi.h>
-#include <stdarg.h>
-int rank=0;
-int numtasks=0;
-#endif
+//#ifdef WITH_MPI
+// #include <mpi.h>
+// #include <stdarg.h>
+// int rank=0;
+// int numtasks=0;
+// #endif
 
 /* Command line parameters, see usage info (initially -1 for sanity check)*/
 long CLOMP_numThreads = -2;       /* > 0 or -1 valid */
@@ -165,55 +165,55 @@ double CLOMP_error_bound = 0.0;
  */
 double CLOMP_tightest_error_bound = 0.0;
 
-#ifdef WITH_MPI
-/* Redirect printf and fprintf to MPI-aware versions.   Prevents having
- * to rewrite most of the CLOMP I/O code.
- */
-#undef printf
-#define printf clomp_mpi_printf
-#undef fprintf
-#define fprintf clomp_mpi_fprintf
+// #ifdef WITH_MPI
+// /* Redirect printf and fprintf to MPI-aware versions.   Prevents having
+//  * to rewrite most of the CLOMP I/O code.
+//  */
+// #undef printf
+// #define printf clomp_mpi_printf
+// #undef fprintf
+// #define fprintf clomp_mpi_fprintf
 
-void clomp_mpi_printf (const char *fmt, ...)
-{
-    int ret;
-    va_list args;
+// void clomp_mpi_printf (const char *fmt, ...)
+// {
+//     int ret;
+//     va_list args;
 
-    /* Only output from rank 0 for now */
-    if (rank == 0)
-    {
-	va_start (args, fmt);
-	ret = vprintf (fmt, args);
-	va_end (args);
-    }
-}
+//     /* Only output from rank 0 for now */
+//     if (rank == 0)
+//     {
+// 	va_start (args, fmt);
+// 	ret = vprintf (fmt, args);
+// 	va_end (args);
+//     }
+// }
 
 
-void clomp_mpi_fprintf (FILE *out, const char *fmt, ...)
-{
-    int ret;
-    va_list args;
+// void clomp_mpi_fprintf (FILE *out, const char *fmt, ...)
+// {
+//     int ret;
+//     va_list args;
 
-    /* Only output from rank 0 for now */
-    if (rank == 0)
-    {
-	va_start (args, fmt);
-	ret = vfprintf (out, fmt, args);
-	va_end (args);
-    }
-}
+//     /* Only output from rank 0 for now */
+//     if (rank == 0)
+//     {
+// 	va_start (args, fmt);
+// 	ret = vfprintf (out, fmt, args);
+// 	va_end (args);
+//     }
+// }
 
-/* Need a way for tasks other than task 0 to print something for debugging */
-void unfiltered_printf (const char *fmt, ...)
-{
-    int ret;
-    va_list args;
+// /* Need a way for tasks other than task 0 to print something for debugging */
+// void unfiltered_printf (const char *fmt, ...)
+// {
+//     int ret;
+//     va_list args;
 
-    va_start (args, fmt);
-    ret = vprintf (fmt, args);
-    va_end (args);
-}
-#endif
+//     va_start (args, fmt);
+//     ret = vprintf (fmt, args);
+//     va_end (args);
+// }
+// #endif
 
 void print_usage()
 {
@@ -420,7 +420,7 @@ void print_start_message (const char *desc)
 	if (strcmp (desc, "Serial Ref") != 0)
 	{
 	    /* Print out how many threads we are using */
-	    printf ("%13s #Threads: %d\n", desc, omp_get_max_threads());
+	    printf ("%13s #Threads: %d\n", desc, 1);
 	}
 	else
 	{
@@ -457,57 +457,57 @@ double print_timestats (const char *desc, struct timeval *start_ts,
 {
     double seconds;
     char used_desc[100]="";
-#ifdef WITH_MPI
-    struct {
-	double seconds;
-	int rank;
-    } myrank, minrank, maxrank;
-    double sum_seconds=-1., avg_seconds=1.;
-#endif
+// #ifdef WITH_MPI
+//     struct {
+// 	double seconds;
+// 	int rank;
+//     } myrank, minrank, maxrank;
+//     double sum_seconds=-1., avg_seconds=1.;
+// #endif
 
     /* Calculate run time */
     seconds = ((double)end_ts->tv_sec + ((double)end_ts->tv_usec * 1e-6)) -
         ((double)start_ts->tv_sec + ((double)start_ts->tv_usec * 1e-6));
 
-#ifdef WITH_MPI
-    /* Calc min, max, avg of seconds measured. */
-    /* Use MINLOC and MAXLOC to get ranks of min/max
-     * Need value, rank pair to make this work.
-     */
-    myrank.seconds = seconds;
-    myrank.rank = rank;
+// #ifdef WITH_MPI
+//     /* Calc min, max, avg of seconds measured. */
+//     /* Use MINLOC and MAXLOC to get ranks of min/max
+//      * Need value, rank pair to make this work.
+//      */
+//     myrank.seconds = seconds;
+//     myrank.rank = rank;
 
-    /* Sanity check */
-    minrank.seconds = maxrank.seconds = -1.0;
-    minrank.rank = maxrank.rank = -1;
+//     /* Sanity check */
+//     minrank.seconds = maxrank.seconds = -1.0;
+//     minrank.rank = maxrank.rank = -1;
 
-    MPI_Allreduce (&myrank, &minrank, 1, MPI_DOUBLE_INT, MPI_MINLOC, 
-		   MPI_COMM_WORLD);
-    MPI_Allreduce (&myrank, &maxrank, 1, MPI_DOUBLE_INT, MPI_MAXLOC, 
-		   MPI_COMM_WORLD);
-    MPI_Allreduce (&seconds, &sum_seconds, 1, MPI_DOUBLE, MPI_SUM, 
-		   MPI_COMM_WORLD);
-    avg_seconds = sum_seconds/ (double)numtasks;
+//     MPI_Allreduce (&myrank, &minrank, 1, MPI_DOUBLE_INT, MPI_MINLOC, 
+// 		   MPI_COMM_WORLD);
+//     MPI_Allreduce (&myrank, &maxrank, 1, MPI_DOUBLE_INT, MPI_MAXLOC, 
+// 		   MPI_COMM_WORLD);
+//     MPI_Allreduce (&seconds, &sum_seconds, 1, MPI_DOUBLE, MPI_SUM, 
+// 		   MPI_COMM_WORLD);
+//     avg_seconds = sum_seconds/ (double)numtasks;
 
-    printf ("%13s MPI Dist: Min %.3f (Rank %i) Max %.3f (Rank %i) Avg %.3f\n",
-	    desc, minrank.seconds, minrank.rank, maxrank.seconds, 
-	    maxrank.rank, avg_seconds);
-    /* For serial and bestcase, use min times.  For all else, use max times */
-    if (rank == 0)
-    {
-	if ((strcmp(desc, "Serial Ref") == 0) ||
-	    (strcmp(desc, "Bestcase OMP") == 0))
-	{
-		seconds = minrank.seconds;
-		sprintf (used_desc, ", min used, rank %i", minrank.rank);
-	}
-	else
-	{
-	    seconds = maxrank.seconds;
-	    sprintf (used_desc, ", max used, rank %i", maxrank.rank);
-	}
-    }
-#endif
+//     printf ("%13s MPI Dist: Min %.3f (Rank %i) Max %.3f (Rank %i) Avg %.3f\n",
+// 	    desc, minrank.seconds, minrank.rank, maxrank.seconds, 
+// 	    maxrank.rank, avg_seconds);
+//     /* For serial and bestcase, use min times.  For all else, use max times */
+//     if (rank == 0)
+//     {
+// 	if ((strcmp(desc, "Serial Ref") == 0) ||
+// 	    (strcmp(desc, "Bestcase OMP") == 0))
+// 	{
+// 		seconds = minrank.seconds;
+// 		sprintf (used_desc, ", min used, rank %i", minrank.rank);
+// 	}
+// 	else
+// 	{
+// 	    seconds = maxrank.seconds;
+// 	    sprintf (used_desc, ", max used, rank %i", maxrank.rank);
+// 	}
+//     }
+// #endif
 
     /* Print out overall runtime */
     printf ("%13s  Runtime: %.3f (wallclock, in seconds%s)\n", desc, seconds, 
@@ -1665,8 +1665,8 @@ void do_manual_omp_version(long num_iterations)
 	/* Use thread_id to determine exactly which parts each
 	 * thread should execute.
 	 */
-	int thread_id = omp_get_thread_num();
-	int numThreads = omp_get_num_threads();
+	int thread_id = 0;
+	int numThreads = 1;
 
 	/* Calculate the avg number of parts per zone to use */
 	dparts_per_thread = ((double)(CLOMP_numParts))/((double)(numThreads));
@@ -1899,8 +1899,8 @@ void do_bestcase_omp_version(long num_iterations)
 	/* Use thread_id to determine exactly which parts each
 	 * thread should execute.
 	 */
-	int thread_id = omp_get_thread_num();
-	int numThreads = omp_get_num_threads();
+	int thread_id = 0;
+	int numThreads = 1;
 
 	/* Calculate the avg number of parts per zone to use */
 	dparts_per_thread = ((double)(CLOMP_numParts))/((double)(numThreads));
@@ -2115,24 +2115,24 @@ int main (int argc, char *argv[])
     int bidx, aidx;
     Part *sorted_part_list;
     Part *part;
-#ifdef WITH_MPI
-    int provided, rc;
-#endif
+// #ifdef WITH_MPI
+//     int provided, rc;
+// #endif
 
-#ifdef WITH_MPI
-    /* Clomp -DWITH_MPI uses MPI_THREAD_FUNNELED model */
-    rc = MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-    if (rc != MPI_SUCCESS) 
-    {
-	fprintf (stderr, 
-		 "Error starting MPI_THREAD_FUNNELED program rc %i."
-		 "Terminating.\n",
-		 rc);
-	MPI_Abort(MPI_COMM_WORLD, rc);
-    }
-    MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-#endif
+// #ifdef WITH_MPI
+//     /* Clomp -DWITH_MPI uses MPI_THREAD_FUNNELED model */
+//     rc = MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+//     if (rc != MPI_SUCCESS) 
+//     {
+// 	fprintf (stderr, 
+// 		 "Error starting MPI_THREAD_FUNNELED program rc %i."
+// 		 "Terminating.\n",
+// 		 rc);
+// 	MPI_Abort(MPI_COMM_WORLD, rc);
+//     }
+//     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+//     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+// #endif
 
     /* Get executable name by pointing to argv[0] */
     CLOMP_exe_name = argv[0];
@@ -2179,17 +2179,17 @@ int main (int argc, char *argv[])
     }
     printf ("\n");
 
-#ifdef WITH_MPI
-    if (provided == MPI_THREAD_FUNNELED)
-    {
-	printf ("       Invoke MPI: YES (MPI_THREAD_FUNNELED)\n");
-    }
-    else
-    {
-	printf ("       Invoke MPI: YES (provided returned %i\n", provided);
-    }
-    printf ("        MPI Tasks: %i\n", numtasks);
-#endif
+// #ifdef WITH_MPI
+//     if (provided == MPI_THREAD_FUNNELED)
+//     {
+// 	printf ("       Invoke MPI: YES (MPI_THREAD_FUNNELED)\n");
+//     }
+//     else
+//     {
+// 	printf ("       Invoke MPI: YES (provided returned %i\n", provided);
+//     }
+//     printf ("        MPI Tasks: %i\n", numtasks);
+// #endif
     
 
     /* Print out command line arguments read in */
@@ -2199,7 +2199,7 @@ int main (int argc, char *argv[])
     if (CLOMP_numThreads == -1)
     {
 	/* Set CLOMP_numThreads to system default if -1 */
-	CLOMP_numThreads = omp_get_max_threads();
+	CLOMP_numThreads = 1;
 
 	/* Print out system default for threads */
 	printf ("      numThreads: %d (using system default)\n", 
@@ -2243,7 +2243,7 @@ int main (int argc, char *argv[])
      * specified.   If threads are used, it may lay out the memory on
      * NUMA system better for threaded computation.
      */
-    omp_set_num_threads ((int)CLOMP_allocThreads);
+    //omp_set_num_threads ((int)CLOMP_allocThreads);
 
 
     /* Allocate part pointer array */
@@ -2316,7 +2316,7 @@ int main (int argc, char *argv[])
 #if 0
 	/* Print out memory address for zoneArray to see where it maps */
 	printf ("Part %i threadId %i: zones %p - %p\n", (int)partId,
-		omp_get_thread_num(), zoneArray, &zoneArray[CLOMP_zonesPerPart-1]);
+		1, zoneArray, &zoneArray[CLOMP_zonesPerPart-1]);
 #endif
     }
 
@@ -2447,7 +2447,7 @@ int main (int argc, char *argv[])
      * specified. Because we are using alloc threads also, have to explicitly
      * set even if using system default 
      */
-    omp_set_num_threads ((int)CLOMP_numThreads);
+    //omp_set_num_threads ((int)CLOMP_numThreads);
 
 
     /* Print initial line bar separator */
@@ -2468,10 +2468,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("calc_deposit", "deposit = calc_deposit ();");
     print_pseudocode ("calc_deposit", "------- End calc_deposit Pseudocode -------");
     print_start_message ("calc_deposit");
-#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+// #ifdef WITH_MPI
+//     /* Ensure all MPI tasks run OpenMP at the same time */
+//     MPI_Barrier (MPI_COMM_WORLD);
+// #endif
     get_timestamp (&calc_deposit_start_ts);
     do_calc_deposit_only();
     get_timestamp (&calc_deposit_end_ts);
@@ -2492,10 +2492,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("OMP Barrier", "#pragma omp barrier");
     print_pseudocode ("OMP Barrier", "------- End OMP Barrier Pseudocode -------");
     print_start_message ("OMP Barrier");
-#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+// #ifdef WITH_MPI
+//     /* Ensure all MPI tasks run OpenMP at the same time */
+//     MPI_Barrier (MPI_COMM_WORLD);
+// #endif
     get_timestamp (&omp_barrier_start_ts);
     do_omp_barrier_only(CLOMP_num_iterations);
     get_timestamp (&omp_barrier_end_ts);
@@ -2522,10 +2522,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("Serial Ref", "  update_part (partArray[pidx], deposit);");
     print_pseudocode ("Serial Ref", "------- End Serial Ref Pseudocode -------");
     print_start_message ("Serial Ref");
-#ifdef WITH_MPI
+//#ifdef WITH_MPI
     /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+    //MPI_Barrier (MPI_COMM_WORLD);
+//#endif
     get_timestamp (&serial_ref_start_ts);
     do_serial_ref_version();
     get_timestamp (&serial_ref_end_ts);
@@ -2562,10 +2562,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("Bestcase OMP", "  update_part (partArray[pidx], deposit);");
     print_pseudocode ("Bestcase OMP", "------- End Bestcase OMP Pseudocode -------");
     print_start_message ("Bestcase OMP");
-#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+// #ifdef WITH_MPI
+//     /* Ensure all MPI tasks run OpenMP at the same time */
+//     MPI_Barrier (MPI_COMM_WORLD);
+// #endif
     get_timestamp (&bestcase_omp_start_ts);
     do_bestcase_omp_version(CLOMP_num_iterations);
     get_timestamp (&bestcase_omp_end_ts);
@@ -2602,10 +2602,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("Static OMP", "  update_part (partArray[pidx], deposit);");
     print_pseudocode ("Static OMP", "------- End Static OMP Pseudocode -------");
     print_start_message ("Static OMP");
-#ifdef WITH_MPI
+//#ifdef WITH_MPI
     /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+    //MPI_Barrier (MPI_COMM_WORLD);
+//#endif
     get_timestamp (&static_omp_start_ts);
     do_static_omp_version();
     get_timestamp (&static_omp_end_ts);
@@ -2642,10 +2642,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("Dynamic OMP", "  update_part (partArray[pidx], deposit);");
     print_pseudocode ("Dynamic OMP", "------- End Dynamic OMP Pseudocode -------");
     print_start_message ("Dynamic OMP");
-#ifdef WITH_MPI
+//#ifdef WITH_MPI
     /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+    //MPI_Barrier (MPI_COMM_WORLD);
+//#endif
     get_timestamp (&dynamic_omp_start_ts);
     do_dynamic_omp_version();
     get_timestamp (&dynamic_omp_end_ts);
@@ -2697,10 +2697,10 @@ int main (int argc, char *argv[])
     print_pseudocode ("Manual OMP", "}");
     print_pseudocode ("Manual OMP", "------- End Manual OMP Pseudocode -------");
     print_start_message ("Manual OMP");
-#ifdef WITH_MPI
+//#ifdef WITH_MPI
     /* Ensure all MPI tasks run OpenMP at the same time */
-    MPI_Barrier (MPI_COMM_WORLD);
-#endif
+    //MPI_Barrier (MPI_COMM_WORLD);
+//#endif
     get_timestamp (&manual_omp_start_ts);
     do_manual_omp_version(CLOMP_num_iterations);
     get_timestamp (&manual_omp_end_ts);
@@ -2776,13 +2776,13 @@ int main (int argc, char *argv[])
 
     {
 	char mpi_marker[100]="";
-#ifdef WITH_MPI
+//#ifdef WITH_MPI
 	/* Denote how many MPI tasks were used to generate stats if
 	 * actually ran more than 1 MPI task.
 	 */
-	if (numtasks > 1)
-	    sprintf (mpi_marker, "%d MPI X ", numtasks);
-#endif
+	//if (numtasks > 1)
+	    //sprintf (mpi_marker, "%d MPI X ", numtasks);
+//#endif
     printf ("CORAL RFP, %s%ld %ld %ld %ld %ld %ld %ld, %.2f, %.2f, %.1f, %.2f, %.1f, %.2f, %.1f, %.2f, %.1f\n",
 	    mpi_marker,
 	    CLOMP_numThreads,
@@ -2803,9 +2803,9 @@ int main (int argc, char *argv[])
 	    speedup(manual_omp_seconds));
     }
 
-#ifdef WITH_MPI
-    MPI_Finalize();
-#endif
+// #ifdef WITH_MPI
+//     MPI_Finalize();
+// #endif
 
     return (0);
 }
