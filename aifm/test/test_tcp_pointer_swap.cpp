@@ -123,25 +123,26 @@ long CLOMP_inputAllocThreads = -2;
 // DerefScope scope;
 
 /* Simple Zone data structure */
-struct Zone
+class Zone
 {
+public:
     long zoneId;
     long partId;
     double value;
-    // struct _SharedPtr<Zone> *nextZone;
-    struct SharedPtr<Zone> *nextZone;
+    SharedPtr<Zone> *nextZone = nullptr;
 };
 
 /* Part data structure */
-struct Part
+class Part
 {
+public:
     unsigned long partId;
     unsigned long zoneCount;
     unsigned long update_count;
     // SharedPtr<Zone> *firstZone;
     // SharedPtr<Zone> *lastZone;
-    SharedPtr<Zone> *firstZone;
-    SharedPtr<Zone> *lastZone;
+    SharedPtr<Zone> *firstZone = nullptr;
+    SharedPtr<Zone> *lastZone = nullptr;
 
     double deposit_ratio;
     double residue;
@@ -356,6 +357,7 @@ void update_part(SharedPtr<Part> *part, double incoming_deposit)
 /* Resets parts to initial state and warms up cache */
 void reinitialize_parts()
 {
+    cout << "reinitializing parts\n";
     unsigned long pidx;
     // SharedPtr<Zone> *zone;
 
@@ -451,57 +453,10 @@ double print_timestats(const char *desc, struct timeval *start_ts,
 {
     double seconds;
     char used_desc[100] = "";
-    // #ifdef WITH_MPI
-    //     struct {
-    // 	double seconds;
-    // 	int rank;
-    //     } myrank, minrank, maxrank;
-    //     double sum_seconds=-1., avg_seconds=1.;
-    // #endif
 
     /* Calculate run time */
     seconds = ((double)end_ts->tv_sec + ((double)end_ts->tv_usec * 1e-6)) -
               ((double)start_ts->tv_sec + ((double)start_ts->tv_usec * 1e-6));
-
-    // #ifdef WITH_MPI
-    //     /* Calc min, max, avg of seconds measured. */
-    //     /* Use MINLOC and MAXLOC to get ranks of min/max
-    //      * Need value, rank pair to make this work.
-    //      */
-    //     myrank.seconds = seconds;
-    //     myrank.rank = rank;
-
-    //     /* Sanity check */
-    //     minrank.seconds = maxrank.seconds = -1.0;
-    //     minrank.rank = maxrank.rank = -1;
-
-    //     MPI_Allreduce (&myrank, &minrank, 1, MPI_DOUBLE_INT, MPI_MINLOC,
-    // 		   MPI_COMM_WORLD);
-    //     MPI_Allreduce (&myrank, &maxrank, 1, MPI_DOUBLE_INT, MPI_MAXLOC,
-    // 		   MPI_COMM_WORLD);
-    //     MPI_Allreduce (&seconds, &sum_seconds, 1, MPI_DOUBLE, MPI_SUM,
-    // 		   MPI_COMM_WORLD);
-    //     avg_seconds = sum_seconds/ (double)numtasks;
-
-    //     printf ("%13s MPI Dist: Min %.3f (Rank %i) Max %.3f (Rank %i) Avg %.3f\n",
-    // 	    desc, minrank.seconds, minrank.rank, maxrank.seconds,
-    // 	    maxrank.rank, avg_seconds);
-    //     /* For serial and bestcase, use min times.  For all else, use max times */
-    //     if (rank == 0)
-    //     {
-    // 	if ((strcmp(desc, "Serial Ref") == 0) ||
-    // 	    (strcmp(desc, "Bestcase OMP") == 0))
-    // 	{
-    // 		seconds = minrank.seconds;
-    // 		sprintf (used_desc, ", min used, rank %i", minrank.rank);
-    // 	}
-    // 	else
-    // 	{
-    // 	    seconds = maxrank.seconds;
-    // 	    sprintf (used_desc, ", max used, rank %i", maxrank.rank);
-    // 	}
-    //     }
-    // #endif
 
     /* Print out overall runtime */
     printf("%13s  Runtime: %.3f (wallclock, in seconds%s)\n", desc, seconds,
@@ -584,7 +539,6 @@ void print_data_stats(const char *desc)
         auto pArryIndexPointer = (&(partArray->at_mut(scope, pidx)))->deref_mut(scope);
         if (is_reference)
         {
-
             pArryIndexPointer->expected_first_value = pArryIndexPointer->firstZone->deref_mut(scope)->value;
             pArryIndexPointer->expected_residue = pArryIndexPointer->residue;
         }
@@ -768,6 +722,7 @@ double calc_deposit()
  */
 void do_calc_deposit_only()
 {
+    cout << "do_calc_deposit_only\n";
     long iteration, subcycle;
 
     /* Do all the iterations */
@@ -781,10 +736,13 @@ void do_calc_deposit_only()
             auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, 0)))->deref_mut(scope);
             /* Fool calc_deposit sanity checks for this timing measurement */
             pPartArryFirstIndexPtr->update_count = 1;
+            cout << "Updated count: " << pPartArryFirstIndexPtr->update_count << endl;
 
             /* Calc value, write into first zone's value, in order
              * to prevent compiler optimizing away
              */
+            cout<<"pPartArryFirstIndexPtr->firstZone:"<<pPartArryFirstIndexPtr->firstZone<<endl;
+            cout<<"pPartArryFirstIndexPtr->firstZone->deref_mut(scope):"<<pPartArryFirstIndexPtr->firstZone->deref_mut(scope)<<endl;
             pPartArryFirstIndexPtr->firstZone->deref_mut(scope)->value = calc_deposit();
         }
     }
@@ -1022,9 +980,9 @@ void addPart(SharedPtr<Part> *part, unsigned long partId)
     /* Initially no residue from previous passes */
     pPartObject->residue = 0.0;
 
-    /* Initially, no zones attached to SharedPtr<Part> */
-    pPartObject->firstZone = NULL;
-    pPartObject->lastZone = NULL;
+    /* Initially, no zones attached to Part */
+    pPartObject->firstZone = nullptr;
+    pPartObject->lastZone = nullptr;
 
     /* Initially, don't know expected values (used for checking */
     pPartObject->expected_first_value = -1.0;
@@ -1098,7 +1056,7 @@ void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
     }
 
     /* Always placed at end */
-    pZoneObject->nextZone = NULL;
+    pZoneObject->nextZone = nullptr;
 
     /* Inialized the rest of the zone fields */
     pZoneObject->partId = pPartObject->partId;
@@ -1121,27 +1079,14 @@ void _main(void *arg)
     char startdate[50]; /* Must be > 26 characters */
     long partId, zoneId;
     double totalZoneCount;
-    // SharedPtr<Zone> *zone, *prev_zone;
     double deposit, residue, percent_residue, part_deposit_bound;
     double deposit_diff_bound;
     double diterations;
     struct timeval calc_deposit_start_ts, calc_deposit_end_ts;
     double calc_deposit_seconds;
-    // struct timeval omp_barrier_start_ts, omp_barrier_end_ts;
-    // double omp_barrier_seconds;
     struct timeval serial_ref_start_ts, serial_ref_end_ts;
     double serial_ref_seconds;
-    // struct timeval bestcase_omp_start_ts, bestcase_omp_end_ts;
-    // double bestcase_omp_seconds;
-    // struct timeval static_omp_start_ts, static_omp_end_ts;
-    // double static_omp_seconds;
-    // struct timeval manual_omp_start_ts, manual_omp_end_ts;
-    // double manual_omp_seconds;
-    // struct timeval dynamic_omp_start_ts, dynamic_omp_end_ts;
-    // double dynamic_omp_seconds;
     int bidx, aidx;
-    // SharedPtr<Part> *sorted_part_list;
-    // SharedPtr<Part> *part;
 
     constexpr static uint64_t kCacheSize = (128ULL << 20);
     constexpr static uint64_t kFarMemSize = (4ULL << 30);
@@ -1448,10 +1393,7 @@ void _main(void *arg)
     print_pseudocode("calc_deposit", "deposit = calc_deposit ();");
     print_pseudocode("calc_deposit", "------- End calc_deposit Pseudocode -------");
     print_start_message("calc_deposit");
-    // #ifdef WITH_MPI
-    //     /* Ensure all MPI tasks run OpenMP at the same time */
-    //     MPI_Barrier (MPI_COMM_WORLD);
-    // #endif
+
     get_timestamp(&calc_deposit_start_ts);
     do_calc_deposit_only();
     get_timestamp(&calc_deposit_end_ts);
