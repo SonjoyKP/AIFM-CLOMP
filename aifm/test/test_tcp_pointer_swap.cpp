@@ -115,10 +115,13 @@ constexpr unsigned long CLOMP_zonesPerPart = 40; /* > 0 valid */
 constexpr unsigned long CLOMP_zoneSize = 32;     /* > 0 valid, (sizeof(Zone) true min)*/
 constexpr unsigned long CLOMP_flopScale = 1;     /* > 0 valid, 1 nominal */
 constexpr unsigned long CLOMP_timeScale = 100;   /* > 0 valid, 100 nominal */
-char *CLOMP_exe_name = NULL;                     /* Points to argv[0] */
+
+long iCurrentZoneLoc = 0;
+
+char *CLOMP_exe_name = NULL; /* Points to argv[0] */
 
 /* Save actual argument for summary at end */
-long CLOMP_inputAllocThreads = -2;
+long CLOMP_inputAllocThreads = 1;
 
 // DerefScope scope;
 
@@ -154,6 +157,7 @@ public:
 // SharedPtr<Part> **partArray = NULL;
 
 far_memory::Array<SharedPtr<Part>, CLOMP_numParts> *partArray;
+far_memory::Array<SharedPtr<Zone>, CLOMP_numParts * CLOMP_zonesPerPart> *zoneArray;
 
 constexpr static uint64_t kCacheSize = (128ULL << 20);
 constexpr static uint64_t kFarMemSize = (4ULL << 30);
@@ -732,15 +736,15 @@ void do_calc_deposit_only()
         for (subcycle = 0; subcycle < 10; subcycle++)
         {
 
-            DerefScope scope;
+                DerefScope scope;
             auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, 0)))->deref_mut(scope);
-            /* Fool calc_deposit sanity checks for this timing measurement */
+                /* Fool calc_deposit sanity checks for this timing measurement */
             pPartArryFirstIndexPtr->update_count = 1;
             cout << "Updated count: " << pPartArryFirstIndexPtr->update_count << endl;
 
-            /* Calc value, write into first zone's value, in order
-             * to prevent compiler optimizing away
-             */
+                /* Calc value, write into first zone's value, in order
+                 * to prevent compiler optimizing away
+                 */
             cout<<"pPartArryFirstIndexPtr->firstZone:"<<pPartArryFirstIndexPtr->firstZone<<endl;
             cout<<"pPartArryFirstIndexPtr->firstZone->deref_mut(scope):"<<pPartArryFirstIndexPtr->firstZone->deref_mut(scope)<<endl;
             pPartArryFirstIndexPtr->firstZone->deref_mut(scope)->value = calc_deposit();
@@ -751,6 +755,7 @@ void do_calc_deposit_only()
 /* Do module one's work serially (contains 1 subcycle) */
 void serial_ref_module1()
 {
+    cout << "serial_ref_module1" << endl;
     double deposit;
     long pidx;
 
@@ -771,6 +776,7 @@ void serial_ref_module1()
 /* Do module two's work serially (contains 2 subcycles) */
 void serial_ref_module2()
 {
+    cout << "serial_ref_module2" << endl;
     double deposit;
     long pidx;
 
@@ -804,6 +810,7 @@ void serial_ref_module2()
 /* Do module three's work serially (contains 3 subcycles) */
 void serial_ref_module3()
 {
+    cout << "serial_ref_module3" << endl;
     double deposit;
     long pidx;
 
@@ -850,6 +857,7 @@ void serial_ref_module3()
 /* Do module four's work serially (contains 4 subcycles) */
 void serial_ref_module4()
 {
+    cout << "serial_ref_module4" << endl;
     double deposit;
 
     /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
@@ -908,6 +916,7 @@ void serial_ref_module4()
 /* Do one cycle (10 subcycles) serially, no OpenMP */
 void serial_ref_cycle()
 {
+    cout << "serial_ref_cycle" << endl;
     /* Emulate calls to 4 different packages, do 10 subcycles total */
     serial_ref_module1();
     serial_ref_module2();
@@ -918,6 +927,7 @@ void serial_ref_cycle()
 /* Do all the cycles (10 subcycles/cycle) serially, no OpenMP */
 void do_serial_ref_version()
 {
+    cout << "do_serial_ref_version" << endl;
     long iteration;
 
     /* Do the specified number of iterations */
@@ -933,6 +943,8 @@ void do_serial_ref_version()
  */
 void addPart(SharedPtr<Part> *part, unsigned long partId)
 {
+    cout << "addPart" << endl;
+    cout << "part add:" << part << endl;
     /* Sanity check, make sure partId valid */
     if ((partId < 0) || (partId >= CLOMP_numParts))
     {
@@ -995,8 +1007,9 @@ void addPart(SharedPtr<Part> *part, unsigned long partId)
  */
 void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
 {
-    cout << "Stating part:" << part << endl;
-    cout << "Stating zone:" << zone << endl;
+    cout << "addZone"<<endl;
+    //cout << "Stating part:" << part << endl;
+    //cout << "Stating zone:" << zone << endl;
 
     DerefScope scope;
     /* Sanity check, make sure not NULL */
