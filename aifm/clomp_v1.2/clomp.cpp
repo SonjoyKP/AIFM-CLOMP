@@ -108,15 +108,14 @@ extern "C"
 using namespace far_memory;
 using namespace std;
 
-/* Command line parameters, see usage info (initially -1 for sanity check)*/
-unsigned long CLOMP_numThreads = -2;         /* > 0 or -1 valid */
-unsigned long CLOMP_allocThreads = -2;       /* > 0 or -1 valid */
-constexpr unsigned long CLOMP_numParts = 8; /* > 0 valid */
-constexpr unsigned long CLOMP_zonesPerPart = 100;       /* > 0 valid */
-unsigned long CLOMP_flopScale = -1;          /* > 0 valid, 1 nominal */
-unsigned long CLOMP_timeScale = -1;          /* > 0 valid, 100 nominal */
-unsigned long CLOMP_zoneSize = -1;           /* > 0 valid, (sizeof(Zone) true min)*/
-char *CLOMP_exe_name = NULL;                 /* Points to argv[0] */
+constexpr unsigned long CLOMP_numThreads = 1;    /* > 0 or -1 valid */
+constexpr unsigned long CLOMP_allocThreads = 1;  /* > 0 or -1 valid */
+constexpr unsigned long CLOMP_numParts = 16;     /* > 0 valid */
+constexpr unsigned long CLOMP_zonesPerPart = 40; /* > 0 valid */
+constexpr unsigned long CLOMP_zoneSize = 32;     /* > 0 valid, (sizeof(Zone) true min)*/
+constexpr unsigned long CLOMP_flopScale = 1;     /* > 0 valid, 1 nominal */
+constexpr unsigned long CLOMP_timeScale = 100;   /* > 0 valid, 100 nominal */
+char *CLOMP_exe_name = NULL;                     /* Points to argv[0] */
 
 /* Save actual argument for summary at end */
 long CLOMP_inputAllocThreads = -2;
@@ -1038,6 +1037,9 @@ void addPart(SharedPtr<Part> *part, unsigned long partId)
  */
 void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
 {
+    cout << "Stating part:" << part << endl;
+    cout << "Stating zone:" << zone << endl;
+
     DerefScope scope;
     /* Sanity check, make sure not NULL */
     if (part->deref_mut(scope) == nullptr)
@@ -1057,18 +1059,25 @@ void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
      * allocated (CLOMP_zoneSize is often bigger than the portion of the
      * zone we use)
      */
-    //memset(zone, 0xFF, CLOMP_zoneSize);
-    auto *new_zone = new Zone;
-    //zone->deref_mut(scope) = new_zone;
-    zone->write(*new_zone);
+    // memset(zone, 0xFF, CLOMP_zoneSize);
 
+    cout << "Allocating new zone\n";
+    auto *new_zone = new Zone;
+
+    cout << "Setting new zone new zone\n";
+    auto zonePtr = zone->deref_mut(scope);
+    zonePtr = new_zone;
 
     /* If not existing zones, place at head of list */
 
     auto pPartObject = part->deref_mut(scope);
+    cout << "pPartObject:" << pPartObject << endl;
     auto pZoneObject = zone->deref_mut(scope);
-    if (pPartObject->lastZone->deref_mut(scope) == NULL)
+    cout << "pZoneObject:" << pZoneObject << endl;
+    if (pPartObject->lastZone == NULL)
     {
+        cout << "Entered in if block" << endl;
+        cout << "pZoneObject->zoneId" << pZoneObject->zoneId << endl;
         /* Give first zone a zoneId of 1 */
         pZoneObject->zoneId = 1;
 
@@ -1080,6 +1089,7 @@ void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
     /* Otherwise, put after last zone */
     else
     {
+        cout << "Entered in else block" << endl;
         /* Give this zone the last Zone's id + 1 */
         pZoneObject->zoneId = pPartObject->lastZone->deref_mut(scope)->zoneId + 1;
 
@@ -1111,7 +1121,7 @@ void _main(void *arg)
     char startdate[50]; /* Must be > 26 characters */
     long partId, zoneId;
     double totalZoneCount;
-    //SharedPtr<Zone> *zone, *prev_zone;
+    // SharedPtr<Zone> *zone, *prev_zone;
     double deposit, residue, percent_residue, part_deposit_bound;
     double deposit_diff_bound;
     double diterations;
@@ -1130,20 +1140,20 @@ void _main(void *arg)
     // struct timeval dynamic_omp_start_ts, dynamic_omp_end_ts;
     // double dynamic_omp_seconds;
     int bidx, aidx;
-    //SharedPtr<Part> *sorted_part_list;
-    //SharedPtr<Part> *part;
+    // SharedPtr<Part> *sorted_part_list;
+    // SharedPtr<Part> *part;
 
     constexpr static uint64_t kCacheSize = (128ULL << 20);
     constexpr static uint64_t kFarMemSize = (4ULL << 30);
     constexpr static uint32_t kNumGCThreads = 12;
-    //constexpr static uint32_t kNumEntries = (8ULL << 20); // So the array size is larger than the local cache size.
+    // constexpr static uint32_t kNumEntries = (8ULL << 20); // So the array size is larger than the local cache size.
     constexpr static uint32_t kNumConnections = 300;
 
     auto raddr = helpers::str_to_netaddr(ip_addr_port);
     auto manager = std::unique_ptr<FarMemManager>(FarMemManagerFactory::build(
         kCacheSize, kNumGCThreads, new TCPDevice(raddr, kNumConnections, kFarMemSize)));
 
-    //FarMemManager *far_mem_manager = manager.get();
+    // FarMemManager *far_mem_manager = manager.get();
 
     /* Get executable name by pointing to argv[0] */
     CLOMP_exe_name = argv[0];
@@ -1151,11 +1161,11 @@ void _main(void *arg)
     printf("CORAL Benchmark Version 1.2\n");
 
     /* Print usage if not 7 arguments */
-    if (argc != 8)
-    {
-        print_usage();
-        exit(1);
-    }
+    // if (argc != 8)
+    // {
+    //     print_usage();
+    //     exit(1);
+    // }
 
     /* Get hostname running on */
     if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -1166,21 +1176,21 @@ void _main(void *arg)
     ctime_r(&starttime, startdate);
 
     /* Read in command line args (all must be positive ints) */
-    CLOMP_numThreads = convert_to_positive_long("numThreads", argv[1]);
-    CLOMP_allocThreads = convert_to_positive_long("numThreads", argv[2]);
-    //CLOMP_numParts = convert_to_positive_long("numParts", argv[3]);
-    //CLOMP_zonesPerPart = convert_to_positive_long("zonesPerPart", argv[4]);
-    CLOMP_zoneSize = convert_to_positive_long("zoneSize", argv[5]);
-    CLOMP_flopScale = convert_to_positive_long("flopScale", argv[6]);
-    CLOMP_timeScale = convert_to_positive_long("timeScale", argv[7]);
+    // CLOMP_numThreads = convert_to_positive_long("numThreads", argv[1]);
+    // CLOMP_allocThreads = convert_to_positive_long("numThreads", argv[2]);
+    // CLOMP_numParts = convert_to_positive_long("numParts", argv[3]);
+    // CLOMP_zonesPerPart = convert_to_positive_long("zonesPerPart", argv[4]);
+    // CLOMP_zoneSize = convert_to_positive_long("zoneSize", argv[5]);
+    // CLOMP_flopScale = convert_to_positive_long("flopScale", argv[6]);
+    // CLOMP_timeScale = convert_to_positive_long("timeScale", argv[7]);
 
     /* Zone size cannot be less than sizeof(Zone), force to be valid */
-    if (CLOMP_zoneSize < sizeof(Zone))
-    {
-        printf("***Forcing zoneSize (%ld specified) to minimum zone size %ld\n\n",
-               CLOMP_zoneSize, (long)sizeof(Zone));
-        CLOMP_zoneSize = sizeof(Zone);
-    }
+    // if (CLOMP_zoneSize < sizeof(Zone))
+    // {
+    //     printf("***Forcing zoneSize (%ld specified) to minimum zone size %ld\n\n",
+    //            CLOMP_zoneSize, (long)sizeof(Zone));
+    //     //CLOMP_zoneSize = sizeof(Zone);
+    // }
 
     /* Print out command line arguments as passed in */
     printf("       Invocation:");
@@ -1197,7 +1207,7 @@ void _main(void *arg)
     if (CLOMP_numThreads == -1)
     {
         /* Set CLOMP_numThreads to system default if -1 */
-        CLOMP_numThreads = 1;
+        // CLOMP_numThreads = 1;
 
         /* Print out system default for threads */
         printf("      numThreads: %d (using system default)\n",
@@ -1215,7 +1225,7 @@ void _main(void *arg)
     if (CLOMP_allocThreads == -1)
     {
         /* Use numThreads for alloc threads if -1 */
-        CLOMP_allocThreads = CLOMP_numThreads;
+        // CLOMP_allocThreads = CLOMP_numThreads;
 
         /* Print out number of alloc threads to use */
         printf("    allocThreads: %ld (using numThreads)\n",
@@ -1267,27 +1277,21 @@ void _main(void *arg)
         addPart(&part, partId);
         cout << "part added: " << partId << "\n";
     }
-    
+    cout << "part added Done\n";
 
     for (partId = 0; partId < CLOMP_numParts; partId++)
     {
-        far_memory::Array<SharedPtr<Zone>, CLOMP_zonesPerPart> *ZoneArray;
+        // far_memory::Array<SharedPtr<Zone>, CLOMP_zonesPerPart> *ZoneArray;
 
         uint64_t zoneId;
-        
-        auto zone = manager->allocate_shared_ptr<Zone>();
 
         for (zoneId = 0; zoneId < CLOMP_zonesPerPart; zoneId++)
         {
+            auto zone = manager->allocate_shared_ptr<Zone>();
             DerefScope scope;
             addZone(&(partArray->at_mut(scope, partId)), &zone);
+            cout << "Zone added: " << zoneId << "\n";
         }
-
-#if 0
-	/* Print out memory address for zoneArray to see where it maps */
-	printf ("Part %i threadId %i: zones %p - %p\n", (int)partId,
-		1, zoneArray, &zoneArray[CLOMP_zonesPerPart-1]);
-#endif
     }
 
     /* Calculate the total number of zones */
