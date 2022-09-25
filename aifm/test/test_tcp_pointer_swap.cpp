@@ -123,47 +123,44 @@ char *CLOMP_exe_name = NULL; /* Points to argv[0] */
 /* Save actual argument for summary at end */
 long CLOMP_inputAllocThreads = 1;
 
-// DerefScope scope;
+// DerefScope vScope;
 
 /* Simple Zone data structure */
-class Zone
+class CZone
 {
 public:
-    long zoneId;
-    long partId;
+    long m_iZoneId;
+    long m_iPartId;
     double value;
-    SharedPtr<Zone> *nextZone = nullptr;
+    SharedPtr<CZone> *m_pNextZone = nullptr;
 };
 
 /* Part data structure */
-class Part
+class CPart
 {
 public:
-    unsigned long partId;
-    unsigned long zoneCount;
-    unsigned long update_count;
-    // SharedPtr<Zone> *firstZone;
-    // SharedPtr<Zone> *lastZone;
-    SharedPtr<Zone> *firstZone = nullptr;
-    SharedPtr<Zone> *lastZone = nullptr;
+    unsigned long m_iPartId;
+    unsigned long m_iZoneCount;
+    unsigned long m_iUpdate_count;
+    // SharedPtr<Zone> *m_pFirstZone;
+    // SharedPtr<Zone> *m_pLastZone;
+    SharedPtr<CZone> *m_pFirstZone = nullptr;
+    SharedPtr<CZone> *m_pLastZone = nullptr;
 
-    double deposit_ratio;
-    double residue;
-    double expected_first_value; /* Used to check results */
-    double expected_residue;     /* Used to check results */
+    double m_dDeposit_ratio;
+    double m_dResidue;
+    double m_dExpected_first_value; /* Used to check results */
+    double m_dExpected_residue;     /* Used to check results */
 };
 
 /* Part array working on (now array of Part pointers)*/
-// SharedPtr<Part> **partArray = NULL;
+far_memory::Array<SharedPtr<CPart>, CLOMP_numParts> *g_paPartArray;
 
-far_memory::Array<SharedPtr<Part>, CLOMP_numParts> *partArray;
-far_memory::Array<SharedPtr<Zone>, CLOMP_numParts * CLOMP_zonesPerPart> *zoneArray;
-
-constexpr static uint64_t kCacheSize = (128ULL << 20);
-constexpr static uint64_t kFarMemSize = (4ULL << 30);
-constexpr static uint32_t kNumGCThreads = 12;
-constexpr static uint32_t kNumEntries = (8ULL << 20); // So the array size is larger than the local cache size.
-constexpr static uint32_t kNumConnections = 300;
+// constexpr static uint64_t kCacheSize = (128ULL << 20);
+// constexpr static uint64_t kFarMemSize = (4ULL << 30);
+// constexpr static uint32_t kNumGCThreads = 12;
+// constexpr static uint32_t kNumEntries = (8ULL << 20); // So the array size is larger than the local cache size.
+// constexpr static uint32_t kNumConnections = 300;
 
 FarMemManager *far_mem_manager;
 
@@ -174,11 +171,11 @@ double CLOMP_partRatio = 0.0;
  * fast new machine (deterministic calculated using heuristics).   */
 long CLOMP_num_iterations = 0.0;
 
-/* Used to check residue of checksum */
+/* Used to check m_dResidue of checksum */
 double CLOMP_max_residue = 0.0;
 
 /* Used to calc_deposit's return value without having to check
- * every part's residue.  This allows more parts to be used and
+ * every part's m_dResidue.  This allows more parts to be used and
  * thus higher thread counts.
  */
 double CLOMP_residue_ratio_part0 = 0.0;
@@ -280,25 +277,28 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
     return (val);
 }
 
-void update_part(SharedPtr<Part> *part, double incoming_deposit)
+void update_part(SharedPtr<CPart> *part, double incoming_deposit)
 {
     // SharedPtr<Zone> *zone;
-    double deposit_ratio, remaining_deposit, deposit;
+    // cout << "update_part" << endl;
+    double m_dDeposit_ratio, remaining_deposit, deposit;
     long scale_count;
 
     {
-        DerefScope scope;
-        auto pPart = part->deref_mut(scope);
+        DerefScope vScope;
+        auto pPart = part->deref_mut(vScope);
 
-        // auto pZone = zone->deref_mut(scope);
+        // auto pZone = zone->deref_mut(vScope);
 
         /* Update count of updates for this part (for error checking)
          * Just part 0's count will be zeroed regularly.   Others may wrap.
          */
-        pPart->update_count++;
+        // cout << "   access pPart" << endl;
+        pPart->m_iUpdate_count++;
 
-        /* Get the deposit_ratio from part*/
-        deposit_ratio = pPart->deposit_ratio;
+        /* Get the m_dDeposit_ratio from part*/
+
+        m_dDeposit_ratio = pPart->m_dDeposit_ratio;
 
         /* Initially, the remaining_deposit is the incoming deposit */
         remaining_deposit = incoming_deposit;
@@ -309,15 +309,16 @@ void update_part(SharedPtr<Part> *part, double incoming_deposit)
          */
         if (CLOMP_flopScale == 1)
         {
-            /* Run through each zone, depositing 'deposit_ratio' part of the
+            /* Run through each zone, depositing 'm_dDeposit_ratio' part of the
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
 
-            for (auto zone = pPart->firstZone->deref_mut(scope); zone != NULL; zone = zone->nextZone->deref_mut(scope))
+            for (auto zone = pPart->m_pFirstZone->deref_mut(vScope); zone != NULL;
+                 zone = zone->m_pNextZone->deref_mut(vScope))
             {
                 /* Calculate the deposit for this zone */
-                deposit = remaining_deposit * deposit_ratio;
+                deposit = remaining_deposit * m_dDeposit_ratio;
 
                 /* Add deposit to the zone's value */
                 zone->value += deposit;
@@ -330,22 +331,27 @@ void update_part(SharedPtr<Part> *part, double incoming_deposit)
         /* Otherwise, if CLOMP_flopScale != 1, use inner loop version */
         else
         {
-            /* Run through each zone, depositing 'deposit_ratio' part of the
+            /* Run through each zone, depositing 'm_dDeposit_ratio' part of the
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            for (auto zone = pPart->firstZone->deref_mut(scope); zone != NULL; zone = zone->nextZone->deref_mut(scope))
+            for (auto zone = pPart->m_pFirstZone->deref_mut(vScope);
+                 zone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
             {
+                cout << "   Loop Thru zones in update parts" << endl;
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
                 for (scale_count = 0; scale_count < CLOMP_flopScale; scale_count++)
                 {
                     /* Calculate the deposit for this SharedPtr<Zone> */
-                    deposit = remaining_deposit * deposit_ratio;
+                    deposit = remaining_deposit * m_dDeposit_ratio;
 
                     /* Add deposit to the zone's value */
+
+                    // cout << "   accessing zone" << endl;
                     zone->value += deposit;
+                    // cout << "   Done zone" << endl;
 
                     /* Remove deposit from the remaining_deposit */
                     remaining_deposit -= deposit;
@@ -353,8 +359,8 @@ void update_part(SharedPtr<Part> *part, double incoming_deposit)
             }
         }
 
-        /* Put the left over deposit in the Part's residue field */
-        pPart->residue = remaining_deposit;
+        /* Put the left over deposit in the Part's m_dResidue field */
+        pPart->m_dResidue = remaining_deposit;
     }
 }
 
@@ -365,37 +371,37 @@ void reinitialize_parts()
     unsigned long pidx;
     // SharedPtr<Zone> *zone;
 
-    // DerefScope scope;
+    // DerefScope vScope;
 
-    /* Reset all the zone values to 0.0 and the part residue to 0.0 */
+    /* Reset all the zone values to 0.0 and the part m_dResidue to 0.0 */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto &pointer_loc = partArray->at_mut(scope, pidx);
+        DerefScope vScope;
+        auto &pointer_loc = g_paPartArray->at_mut(vScope, pidx);
         auto part_ptr = &pointer_loc;
-        auto partArray_index = part_ptr->deref_mut(scope);
+        auto partArray_index = part_ptr->deref_mut(vScope);
 
-        for (auto zone = partArray_index->firstZone->deref_mut(scope);
+        for (auto zone = partArray_index->m_pFirstZone->deref_mut(vScope);
              zone != NULL;
-             zone = zone->nextZone->deref_mut(scope))
+             zone = zone->m_pNextZone->deref_mut(vScope))
         {
             /* Reset zone's value to 0 */
             zone->value = 0.0;
         }
 
-        /* Reset residue */
-        partArray_index->residue = 0.0;
+        /* Reset m_dResidue */
+        partArray_index->m_dResidue = 0.0;
 
         /* Reset update count */
-        partArray_index->update_count = 0;
+        partArray_index->m_iUpdate_count = 0;
     }
 
     /* Scan through zones and add zero to each zone to warm up cache*/
-    /* Also sets each zone update_count to 1, which sanity check wants */
+    /* Also sets each zone m_iUpdate_count to 1, which sanity check wants */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArrayIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArrayIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArrayIndexPtr, 0.0);
     }
 }
@@ -509,10 +515,10 @@ void print_data_stats(const char *desc)
 {
     double value_sum, residue_sum, last_value, dtotal;
     long pidx;
-    SharedPtr<Zone> *zone;
+    SharedPtr<CZone> *zone;
     int is_reference, error_count;
 
-    /* Initialize value and residue sums to zero */
+    /* Initialize value and m_dResidue sums to zero */
     value_sum = 0.0;
     residue_sum = 0.0;
 
@@ -530,21 +536,21 @@ void print_data_stats(const char *desc)
     error_count = 0;
 
     /* Scan through each part, check that values decrease monotonically
-     * and sum up all the values.  Also check that the part residue and
+     * and sum up all the values.  Also check that the part m_dResidue and
      * the part's first zone's value are the expected value.
      */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         /* If have reference calculation, grab the first zone's value
-         * and the part residue for comparison later
+         * and the part m_dResidue for comparison later
          */
 
-        DerefScope scope;
-        auto pArryIndexPointer = (&(partArray->at_mut(scope, pidx)))->deref_mut(scope);
+        DerefScope vScope;
+        auto pArryIndexPointer = (&(g_paPartArray->at_mut(vScope, pidx)))->deref_mut(vScope);
         if (is_reference)
         {
-            pArryIndexPointer->expected_first_value = pArryIndexPointer->firstZone->deref_mut(scope)->value;
-            pArryIndexPointer->expected_residue = pArryIndexPointer->residue;
+            pArryIndexPointer->m_dExpected_first_value = pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value;
+            pArryIndexPointer->m_dExpected_residue = pArryIndexPointer->m_dResidue;
         }
 
         /* Otherwise, make sure this part matches the expected values
@@ -557,39 +563,39 @@ void print_data_stats(const char *desc)
         else
         {
             /* Check that first zone's value is what is expected */
-            if (pArryIndexPointer->expected_first_value != pArryIndexPointer->firstZone->deref_mut(scope)->value)
+            if (pArryIndexPointer->m_dExpected_first_value != pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value)
             {
                 error_count++;
                 fprintf(stderr,
                         "%s check failure: part %i first zone value (%g) != reference value (%g)!\n",
-                        desc, (int)pidx, pArryIndexPointer->firstZone->deref_mut(scope)->value,
-                        pArryIndexPointer->expected_first_value);
+                        desc, (int)pidx, pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value,
+                        pArryIndexPointer->m_dExpected_first_value);
             }
-            if (pArryIndexPointer->expected_residue != pArryIndexPointer->residue)
+            if (pArryIndexPointer->m_dExpected_residue != pArryIndexPointer->m_dResidue)
             {
                 error_count++;
                 fprintf(stderr,
-                        "%s check failure: part %i residue (%g) != reference residue (%g)!\n",
-                        desc, (int)pidx, pArryIndexPointer->residue,
-                        pArryIndexPointer->expected_residue);
+                        "%s check failure: part %i m_dResidue (%g) != reference m_dResidue (%g)!\n",
+                        desc, (int)pidx, pArryIndexPointer->m_dResidue,
+                        pArryIndexPointer->m_dExpected_residue);
             }
         }
 
         /* Use first zone's value as initial last_value */
-        last_value = pArryIndexPointer->firstZone->deref_mut(scope)->value;
+        last_value = pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value;
 
         /* Scan through zones checking that values decrease monotonically */
-        for (auto zone = pArryIndexPointer->firstZone->deref_mut(scope);
+        for (auto zone = pArryIndexPointer->m_pFirstZone->deref_mut(vScope);
              zone != NULL;
-             zone = zone->nextZone->deref_mut(scope))
+             zone = zone->m_pNextZone->deref_mut(vScope))
         {
             if (zone->value > last_value)
             {
                 fprintf(stderr,
                         "*** %s check failure (part %i zone %i): "
                         "previous (%g) < current (%g)!\n",
-                        desc, (int)zone->partId,
-                        (int)zone->zoneId, last_value, zone->value);
+                        desc, (int)zone->m_iPartId,
+                        (int)zone->m_iZoneId, last_value, zone->value);
                 error_count++;
             }
 
@@ -600,8 +606,8 @@ void print_data_stats(const char *desc)
             last_value = zone->value;
         }
 
-        /* Sum up part residue's */
-        residue_sum += pArryIndexPointer->residue;
+        /* Sum up part m_dResidue's */
+        residue_sum += pArryIndexPointer->m_dResidue;
     }
 
     /* Calculate the total of value_sum + residue_sum.  This should
@@ -619,7 +625,7 @@ void print_data_stats(const char *desc)
         error_count++;
     }
 
-    /* Sanity check, residue must be within reasonable bounds */
+    /* Sanity check, m_dResidue must be within reasonable bounds */
     if ((residue_sum < 0.0) || (residue_sum > (CLOMP_max_residue + 0.000001)))
     {
         fprintf(stderr,
@@ -631,12 +637,12 @@ void print_data_stats(const char *desc)
     /* Make sure part 0's update count is exactly one.  This detects
      * illegal optimization of calc_deposit().
      */
-    DerefScope scope;
-    auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, pidx)))->deref_mut(scope);
-    if (pPartArryFirstIndexPtr->update_count != 1)
+    DerefScope vScope;
+    auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)))->deref_mut(vScope);
+    if (pPartArryFirstIndexPtr->m_iUpdate_count != 1)
     {
         fprintf(stderr, "Error in calc_deposit: Part updated %i times since last calc_deposit!\n",
-                (int)pPartArryFirstIndexPtr->update_count);
+                (int)pPartArryFirstIndexPtr->m_iUpdate_count);
         fprintf(stderr, "Benchmark designed to have calc_deposit called exactly once per update!\n");
         fprintf(stderr, "Critical error: Exiting...\n");
         exit(1);
@@ -656,7 +662,7 @@ void print_data_stats(const char *desc)
 }
 
 /* Calculates the amount to deposit in each part this subcycle.
- * Based on the residue of all parts from last subcycle.
+ * Based on the m_dResidue of all parts from last subcycle.
  * Normally, this would be done with some sort of MPI exchange of
  * data but here we are just using info from local zones.
  *
@@ -666,19 +672,19 @@ void print_data_stats(const char *desc)
  */
 double calc_deposit()
 {
-    double residue, deposit;
+    double m_dResidue, deposit;
     // long pidx;
 
     /* Sanity check, make sure residues have be updated since last calculation
      * This code cannot be pulled out of loops or above loops!
      * Only check/update part 0 (other counts will just continue and may wrap)
      */
-    DerefScope scope;
-    auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, 0)))->deref_mut(scope);
-    if (pPartArryFirstIndexPtr->update_count != 1)
+    DerefScope vScope;
+    auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
+    if (pPartArryFirstIndexPtr->m_iUpdate_count != 1)
     {
         fprintf(stderr, "Error in calc_deposit: Part updated %i times since last call!\n",
-                (int)pPartArryFirstIndexPtr->update_count);
+                (int)pPartArryFirstIndexPtr->m_iUpdate_count);
         fprintf(stderr, "Benchmark designed to have calc_deposit called exactly once per update!\n");
         fprintf(stderr, "Critical error: Exiting...\n");
         exit(1);
@@ -687,9 +693,9 @@ double calc_deposit()
     /* Mark that we are using the updated info, so we can detect if this
      * code has been moved illegally.
      */
-    pPartArryFirstIndexPtr->update_count = 0;
+    pPartArryFirstIndexPtr->m_iUpdate_count = 0;
 
-    /* Calculate residue from previous subcycle (normally this is done
+    /* Calculate m_dResidue from previous subcycle (normally this is done
      * with an MPI data exchange to other domains, but emulate here).
      */
     /* This method doesn't scale well past 64 parts with target input.
@@ -697,22 +703,22 @@ double calc_deposit()
      * enables larger thread counts.
      *  -JCG 17Dec2013
      *
-     * residue = 0.0;
+     * m_dResidue = 0.0;
      * for (pidx = 0; pidx < CLOMP_numParts; pidx++)
      * {
-     *   residue += partArray[pidx]->residue;
+     *   m_dResidue += g_paPartArray[pidx]->m_dResidue;
      * }
      */
 
-    /* Use direct calculation of deposit based on part 0's residue to
+    /* Use direct calculation of deposit based on part 0's m_dResidue to
      * allow large part counts to be used.   Still want some data to
      * be used from calculation to prevent undesired optimizations.
      * Hopefully using part 0's data will be enough -JCG 17Dec2013
      */
-    residue = pPartArryFirstIndexPtr->residue * CLOMP_residue_ratio_part0;
+    m_dResidue = pPartArryFirstIndexPtr->m_dResidue * CLOMP_residue_ratio_part0;
 
-    /* Calculate deposit for this subcycle based on residue and part ratio */
-    deposit = (1.0 + residue) * CLOMP_partRatio;
+    /* Calculate deposit for this subcycle based on m_dResidue and part ratio */
+    deposit = (1.0 + m_dResidue) * CLOMP_partRatio;
 
     /* Return the amount to deposit in each part this subcycle */
     return (deposit);
@@ -736,18 +742,18 @@ void do_calc_deposit_only()
         for (subcycle = 0; subcycle < 10; subcycle++)
         {
 
-                DerefScope scope;
-            auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, 0)))->deref_mut(scope);
-                /* Fool calc_deposit sanity checks for this timing measurement */
-            pPartArryFirstIndexPtr->update_count = 1;
-            cout << "Updated count: " << pPartArryFirstIndexPtr->update_count << endl;
+            DerefScope vScope;
+            auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
+            /* Fool calc_deposit sanity checks for this timing measurement */
+            pPartArryFirstIndexPtr->m_iUpdate_count = 1;
+            cout << "Updated count: " << pPartArryFirstIndexPtr->m_iUpdate_count << endl;
 
-                /* Calc value, write into first zone's value, in order
-                 * to prevent compiler optimizing away
-                 */
-            cout<<"pPartArryFirstIndexPtr->firstZone:"<<pPartArryFirstIndexPtr->firstZone<<endl;
-            cout<<"pPartArryFirstIndexPtr->firstZone->deref_mut(scope):"<<pPartArryFirstIndexPtr->firstZone->deref_mut(scope)<<endl;
-            pPartArryFirstIndexPtr->firstZone->deref_mut(scope)->value = calc_deposit();
+            /* Calc value, write into first zone's value, in order
+             * to prevent compiler optimizing away
+             */
+            cout << "pPartArryFirstIndexPtr->m_pFirstZone:" << pPartArryFirstIndexPtr->m_pFirstZone << endl;
+            cout << "pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope):" << pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope) << endl;
+            pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope)->value = calc_deposit();
         }
     }
 }
@@ -761,14 +767,14 @@ void serial_ref_module1()
 
     /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 }
@@ -782,27 +788,27 @@ void serial_ref_module2()
 
     /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 }
@@ -816,40 +822,40 @@ void serial_ref_module3()
 
     /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 }
@@ -862,53 +868,53 @@ void serial_ref_module4()
 
     /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 
     /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
 
-    /* Calculate deposit for this subcycle based on last subcycle's residue */
+    /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, pidx)));
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
         update_part(pPartArryIndexPtr, deposit);
     }
 }
@@ -935,44 +941,44 @@ void do_serial_ref_version()
         serial_ref_cycle();
 }
 
-/* Helper, add part passed in to the partArray at partId and initialize
+/* Helper, add part passed in to the g_paPartArray at m_iPartId and initialize
  * it.  The separate routine is used to make it easy to allocate parts
  * with various strategies (such as each thread allocating it's parts).
- * The partArray has to be allocated by one thread but it is not
+ * The g_paPartArray has to be allocated by one thread but it is not
  * modified during the run.
  */
-void addPart(SharedPtr<Part> *part, unsigned long partId)
+void addPart(SharedPtr<CPart> *part, unsigned long m_iPartId)
 {
     cout << "addPart" << endl;
     cout << "part add:" << part << endl;
-    /* Sanity check, make sure partId valid */
-    if ((partId < 0) || (partId >= CLOMP_numParts))
+    /* Sanity check, make sure m_iPartId valid */
+    if ((m_iPartId < 0) || (m_iPartId >= CLOMP_numParts))
     {
-        fprintf(stderr, "addPart error: partId (%i) out of bounds!\n", (int)partId);
+        fprintf(stderr, "addPart error: m_iPartId (%i) out of bounds!\n", (int)m_iPartId);
         exit(1);
     }
 
-    DerefScope scope;
-    auto pPartArryIndexPtr = (&(partArray->at_mut(scope, partId)))->deref_mut(scope);
+    DerefScope vScope;
+    auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, m_iPartId)))->deref_mut(vScope);
 
     /* Sanity check, make sure part not already added! */
     if (pPartArryIndexPtr != NULL)
     {
-        fprintf(stderr, "addPart error: partId (%i) already initialized!\n",
-                (int)partId);
+        fprintf(stderr, "addPart error: m_iPartId (%i) already initialized!\n",
+                (int)m_iPartId);
         exit(1);
     }
 
     /* Put part pointer in array */
-    partArray->at_mut(scope, partId) = *part;
+    g_paPartArray->at_mut(vScope, m_iPartId) = *part;
 
-    auto pPartObject = part->deref_mut(scope);
+    auto pPartObject = part->deref_mut(vScope);
 
-    /* Set partId */
-    pPartObject->partId = partId;
+    /* Set m_iPartId */
+    pPartObject->m_iPartId = m_iPartId;
 
     /* Set zone count for part (now fixed, used to be variable */
-    pPartObject->zoneCount = CLOMP_zonesPerPart;
+    pPartObject->m_iZoneCount = CLOMP_zonesPerPart;
 
     /* Updated June 2010 by John Gyllenhaal to pick a deposit ratio
      * for this part that keeps the math from underflowing and
@@ -984,43 +990,40 @@ void addPart(SharedPtr<Part> *part, unsigned long partId)
      * to inlining update_part() (and optimizing different ways) from
      * incorrect results due to races or bad hardware.
      *
-     * The older deposit_ratio only really worked well for 100 zones.
+     * The older m_dDeposit_ratio only really worked well for 100 zones.
      */
-    pPartObject->deposit_ratio = ((double)((1.5 * (double)CLOMP_numParts) + partId)) /
-                                 ((double)(CLOMP_zonesPerPart * CLOMP_numParts));
+    pPartObject->m_dDeposit_ratio = ((double)((1.5 * (double)CLOMP_numParts) + m_iPartId)) /
+                                    ((double)(CLOMP_zonesPerPart * CLOMP_numParts));
 
-    /* Initially no residue from previous passes */
-    pPartObject->residue = 0.0;
+    /* Initially no m_dResidue from previous passes */
+    pPartObject->m_dResidue = 0.0;
 
     /* Initially, no zones attached to Part */
-    pPartObject->firstZone = nullptr;
-    pPartObject->lastZone = nullptr;
+    pPartObject->m_pFirstZone = nullptr;
+    pPartObject->m_pLastZone = nullptr;
 
     /* Initially, don't know expected values (used for checking */
-    pPartObject->expected_first_value = -1.0;
-    pPartObject->expected_residue = -1.0;
+    pPartObject->m_dExpected_first_value = -1.0;
+    pPartObject->m_dExpected_residue = -1.0;
 }
 
-/* Appends zone to the part identified by partId.   Done in separate routine
+/* Appends zone to the part identified by m_iPartId.   Done in separate routine
  * to facilitate the zones being allocated in various ways (such as by
  * different threads, randomly, etc.)
  */
-void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
+void addZone(SharedPtr<CPart> *part, SharedPtr<CZone> *zone)
 {
-    cout << "addZone"<<endl;
-    //cout << "Stating part:" << part << endl;
-    //cout << "Stating zone:" << zone << endl;
-
-    DerefScope scope;
+    // cout << "addZone"<<endl;
+    DerefScope vOuterScope;
     /* Sanity check, make sure not NULL */
-    if (part->deref_mut(scope) == nullptr)
+    if (part->deref_mut(vOuterScope) == nullptr)
     {
         fprintf(stderr, "addZone error: part NULL!\n");
         exit(1);
     }
 
     /* Sanity check, make sure zone not NULL */
-    if (zone->deref_mut(scope) == NULL)
+    if (zone->deref_mut(vOuterScope) == nullptr)
     {
         fprintf(stderr, "addZone error: zone NULL!\n");
         exit(1);
@@ -1031,49 +1034,42 @@ void addZone(SharedPtr<Part> *part, SharedPtr<Zone> *zone)
      * zone we use)
      */
     // memset(zone, 0xFF, CLOMP_zoneSize);
+    // cout << "Allocating new zone\n";
+    auto *new_zone = new CZone();
 
-    cout << "Allocating new zone\n";
-    auto *new_zone = new Zone;
-
-    cout << "Setting new zone new zone\n";
-    auto zonePtr = zone->deref_mut(scope);
-    zonePtr = new_zone;
+    // cout << "Setting new zone new zone\n";
+    // auto zonePtr = zone->deref_mut(vScope);
+    zone->write(*new_zone);
 
     /* If not existing zones, place at head of list */
-
-    auto pPartObject = part->deref_mut(scope);
-    cout << "pPartObject:" << pPartObject << endl;
-    auto pZoneObject = zone->deref_mut(scope);
-    cout << "pZoneObject:" << pZoneObject << endl;
-    if (pPartObject->lastZone == NULL)
+    if (part->deref_mut(vOuterScope)->m_pLastZone == nullptr)
     {
-        cout << "Entered in if block" << endl;
-        cout << "pZoneObject->zoneId" << pZoneObject->zoneId << endl;
+        DerefScope vInternalScope;
         /* Give first zone a zoneId of 1 */
-        pZoneObject->zoneId = 1;
+        zone->deref_mut(vInternalScope)->m_iZoneId = 1;
 
         /* First and last zone */
-        pPartObject->firstZone = zone;
-        pPartObject->lastZone = zone;
+        part->deref_mut(vInternalScope)->m_pFirstZone = zone;
+        part->deref_mut(vInternalScope)->m_pLastZone = zone;
     }
-
-    /* Otherwise, put after last zone */
-    else
+    else /* Otherwise, put after last zone */
     {
-        cout << "Entered in else block" << endl;
+        DerefScope vInternalScope;
+        // cout << "Entered in else block" << endl;
         /* Give this zone the last Zone's id + 1 */
-        pZoneObject->zoneId = pPartObject->lastZone->deref_mut(scope)->zoneId + 1;
+        zone->deref_mut(vInternalScope)->m_iZoneId = part->deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_iZoneId + 1;
 
-        pPartObject->lastZone->deref_mut(scope)->nextZone = zone;
-        pPartObject->lastZone = zone;
+        part->deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_pNextZone = zone;
+        part->deref_mut(vInternalScope)->m_pLastZone = zone;
     }
 
     /* Always placed at end */
-    pZoneObject->nextZone = nullptr;
+    zone->deref_mut(vOuterScope)->m_pNextZone = nullptr;
 
     /* Inialized the rest of the zone fields */
-    pZoneObject->partId = pPartObject->partId;
-    pZoneObject->value = 0.0;
+    zone->deref_mut(vOuterScope)->m_iPartId = part->deref_mut(vOuterScope)->m_iPartId;
+    zone->deref_mut(vOuterScope)->value = 0.0;
+    // cout << "addZone done for PartID: "<< PartID << "ZoneID"<<endl;
 }
 
 /*
@@ -1090,9 +1086,9 @@ void _main(void *arg)
     char hostname[200];
     time_t starttime;
     char startdate[50]; /* Must be > 26 characters */
-    long partId, zoneId;
+    long iPartId, zoneId;
     double totalZoneCount;
-    double deposit, residue, percent_residue, part_deposit_bound;
+    double deposit, m_dResidue, percent_residue, part_deposit_bound;
     double deposit_diff_bound;
     double diterations;
     struct timeval calc_deposit_start_ts, calc_deposit_end_ts;
@@ -1202,21 +1198,21 @@ void _main(void *arg)
     printf("        zoneSize: %ld\n", CLOMP_zoneSize);
 
     /* Allocate part pointer array */
-    // PORT - initialize partArray with AIFM
-    auto Temp_partArray = manager->allocate_array<SharedPtr<Part>, CLOMP_numParts>();
-    partArray = &Temp_partArray;
-    if (&partArray == nullptr)
+    // PORT - initialize g_paPartArray with AIFM
+    auto Temp_partArray = manager->allocate_array<SharedPtr<CPart>, CLOMP_numParts>();
+    g_paPartArray = &Temp_partArray;
+    if (&g_paPartArray == nullptr)
     {
         fprintf(stderr, "Out of memory allocate part array\n");
         exit(1);
     }
 
-    // PORT - initialize partArray to NULL
+    // PORT - initialize g_paPartArray to NULL
 
-    for (partId = 0; partId < CLOMP_numParts; partId++)
+    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        DerefScope scope;
-        auto arryIndexPtr = &(partArray->at_mut(scope, partId));
+        DerefScope vScope;
+        auto arryIndexPtr = &(g_paPartArray->at_mut(vScope, iPartId));
         arryIndexPtr = nullptr;
     }
 
@@ -1227,27 +1223,27 @@ void _main(void *arg)
      * Do allocations in thread (allocThreads may be set to 1 for allocate)
      * to allow potentially better memory layout for threads
      */
-    //#pragma omp parallel for private(partId) schedule(static)
+    //#pragma omp parallel for private(m_iPartId) schedule(static)
 
-    for (partId = 0; partId < CLOMP_numParts; partId++)
+    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        auto part = manager->allocate_shared_ptr<Part>();
-        addPart(&part, partId);
-        cout << "part added: " << partId << "\n";
+        auto part = manager->allocate_shared_ptr<CPart>();
+        addPart(&part, iPartId);
+        cout << "part added: " << iPartId << "\n";
     }
     cout << "part added Done\n";
 
-    for (partId = 0; partId < CLOMP_numParts; partId++)
+    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        // far_memory::Array<SharedPtr<Zone>, CLOMP_zonesPerPart> *ZoneArray;
-
         uint64_t zoneId;
-
         for (zoneId = 0; zoneId < CLOMP_zonesPerPart; zoneId++)
         {
-            auto zone = manager->allocate_shared_ptr<Zone>();
-            DerefScope scope;
-            addZone(&(partArray->at_mut(scope, partId)), &zone);
+            auto zone = manager->allocate_shared_ptr<CZone>();
+            CZone *pNewZone = new CZone();
+            zone.write(*pNewZone);
+
+            DerefScope vScope;
+            addZone(&(g_paPartArray->at_mut(vScope, iPartId)), &zone);
             cout << "Zone added: " << zoneId << "\n";
         }
     }
@@ -1257,7 +1253,7 @@ void _main(void *arg)
 
     printf("   Zones per Part: %.0f\n", (double)CLOMP_zonesPerPart);
     printf("      Total Zones: %.0f\n", (double)totalZoneCount);
-    printf("Memory (in bytes): %.0f\n", (double)(totalZoneCount * CLOMP_zoneSize) + (double)(sizeof(Part) * CLOMP_numParts));
+    printf("Memory (in bytes): %.0f\n", (double)(totalZoneCount * CLOMP_zoneSize) + (double)(sizeof(CPart) * CLOMP_numParts));
 
     /* Calculate a number of iterations that experimentally appears to
      * give between 0.05 and 1.3 seconds of work on a 2GHz Opteron.
@@ -1285,10 +1281,10 @@ void _main(void *arg)
     printf("  Total Subcycles: %.0f\n",
            (double)CLOMP_num_iterations * (double)10.0);
 
-    /* Calculate serially the percent residue left after one pass */
+    /* Calculate serially the percent m_dResidue left after one pass */
     percent_residue = 0.0;
 
-    /* If we deposit 1.0/numParts, sum of residues becomes percent residue */
+    /* If we deposit 1.0/numParts, sum of residues becomes percent m_dResidue */
     deposit = CLOMP_partRatio;
 
     /* In order to have sane rounding error bounds, determine the minimum
@@ -1299,22 +1295,21 @@ void _main(void *arg)
     CLOMP_tightest_error_bound = deposit;
 
     /* Scan through zones and add deposit to each zone */
-    for (partId = 0; partId < CLOMP_numParts; partId++)
+    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        /* Do serial calculation of percent residue */
+        /* Do serial calculation of percent m_dResidue */
 
-        DerefScope scope;
-        auto pPartArryIndexPtr = (&(partArray->at_mut(scope, partId)));
-        auto pPartArryIndexPtrAddress = pPartArryIndexPtr->deref_mut(scope);
+        DerefScope vScope;
+        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, iPartId)));
+        auto pPartArryIndexPtrAddress = pPartArryIndexPtr->deref_mut(vScope);
 
         update_part(pPartArryIndexPtr, deposit);
-        percent_residue += pPartArryIndexPtrAddress->residue;
+        percent_residue += pPartArryIndexPtrAddress->m_dResidue;
 
         /* The 'next' deposit is smaller than any actual deposit made in
          * this part.  So it is a good lower bound on deposit size.
          */
-        part_deposit_bound =
-            pPartArryIndexPtrAddress->residue * pPartArryIndexPtrAddress->deposit_ratio;
+        part_deposit_bound = pPartArryIndexPtrAddress->m_dResidue * pPartArryIndexPtrAddress->m_dDeposit_ratio;
 
         /* If we use the smallest bound on any part, we should have the
          * biggest error bound that will not give false negatives on
@@ -1323,33 +1318,33 @@ void _main(void *arg)
         if (CLOMP_error_bound > part_deposit_bound)
         {
 #if 0
-	    printf ("After part %i bound from %g to %g (deposit %g)\n", (int)partId,
-		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->deposit_ratio);
+	    printf ("After part %i bound from %g to %g (deposit %g)\n", (int)m_iPartId,
+		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
 #endif
             CLOMP_error_bound = part_deposit_bound;
         }
 #if 0
 	else
 	{
-	    printf ("After part %i bound stayed %g because %g (deposit %g)\n", (int)partId,
-		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->deposit_ratio);
+	    printf ("After part %i bound stayed %g because %g (deposit %g)\n", (int)m_iPartId,
+		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
 	}
 #endif
 
-        deposit_diff_bound = part_deposit_bound * pPartArryIndexPtrAddress->deposit_ratio;
+        deposit_diff_bound = part_deposit_bound * pPartArryIndexPtrAddress->m_dDeposit_ratio;
         if (CLOMP_tightest_error_bound > deposit_diff_bound)
         {
 #if 0
-	    printf ("After part %i tightest bound from %g to %g (deposit %g)\n", (int)partId,
-		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->deposit_ratio);
+	    printf ("After part %i tightest bound from %g to %g (deposit %g)\n", (int)m_iPartId,
+		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
 #endif
             CLOMP_tightest_error_bound = deposit_diff_bound;
         }
 #if 0
 	else
 	{
-	    printf ("After part %i tightest bound stayed %g because %g (deposit %g)\n", (int)partId,
-		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->deposit_ratio);
+	    printf ("After part %i tightest bound stayed %g because %g (deposit %g)\n", (int)m_iPartId,
+		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
 	}
 #endif
     }
@@ -1362,24 +1357,24 @@ void _main(void *arg)
     exit (1);
 #endif
 
-    /* Calculate the expected converged residue (for infinite iterations)
-     * If Y is the percent residue after one pass, then the converged
-     * expected converged residue = (added_each_cycle * Y)/ (1-Y)
+    /* Calculate the expected converged m_dResidue (for infinite iterations)
+     * If Y is the percent m_dResidue after one pass, then the converged
+     * expected converged m_dResidue = (added_each_cycle * Y)/ (1-Y)
      */
     CLOMP_max_residue = (1.0 * percent_residue) / (1 - percent_residue);
     printf("      Max Residue: %-8.8g\n", CLOMP_max_residue);
 
     /* In order to deal with huge thread counts, we need to make calc_deposit
      * not depend on the number of parts.   We do this by quickly caculating
-     * an correct residue that still relies on at least part 0's data
+     * an correct m_dResidue that still relies on at least part 0's data
      * (in an attempt to prevent undesired compiler optimizations).
-     * Found part 0's residue is directly proportional to entire residue,
+     * Found part 0's m_dResidue is directly proportional to entire m_dResidue,
      * so calculate the ratio to get correct value. -JCG 17Dec2013
      */
     {
-        DerefScope scope;
-        auto pPartArryFirstIndexPtr = (&(partArray->at_mut(scope, 0)))->deref_mut(scope);
-        CLOMP_residue_ratio_part0 = percent_residue / pPartArryFirstIndexPtr->residue;
+        DerefScope vScope;
+        auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
+        CLOMP_residue_ratio_part0 = percent_residue / pPartArryFirstIndexPtr->m_dResidue;
     }
 
     /* Set the number of threads for the computation seciton to what user
@@ -1430,7 +1425,7 @@ void _main(void *arg)
     print_pseudocode("Serial Ref", "/* Measure serial reference performance */");
     print_pseudocode("Serial Ref", "deposit = calc_deposit ();");
     print_pseudocode("Serial Ref", "for (pidx = 0; pidx < numParts; pidx++)");
-    print_pseudocode("Serial Ref", "  update_part (partArray[pidx], deposit);");
+    print_pseudocode("Serial Ref", "  update_part (g_paPartArray[pidx], deposit);");
     print_pseudocode("Serial Ref", "------- End Serial Ref Pseudocode -------");
     print_start_message("Serial Ref");
     //#ifdef WITH_MPI
@@ -1520,10 +1515,6 @@ int main(int _argc, char *argv[])
     }
     argc = _argc - 2;
 
-    // auto manager = std::unique_ptr<FarMemManager>(FarMemManagerFactory::build(
-    //       kCacheSize, kNumGCThreads,  new TCPDevice(raddr, kNumConnections, kFarMemSize)));
-
-    // far_mem_manager = manager.get();
 
     ret = runtime_init(conf_path, _main, argv);
     if (ret)
