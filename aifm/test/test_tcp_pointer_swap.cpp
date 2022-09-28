@@ -269,7 +269,7 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
 
 void update_part(u_int64_t iPartId, double incoming_deposit)
 {
-    cout << "update_part" << endl;
+  //  cout << "update_part" << endl;
 
     double m_dDeposit_ratio, remaining_deposit, deposit;
     long scale_count;
@@ -279,7 +279,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
             DerefScope vScope;
             part_raw_ptr = g_paPartArray[iPartId].deref_mut(vScope);
         }
-        cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
+        //cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
 
         /* Update count of updates for this part (for error checking)
          * Just part 0's count will be zeroed regularly.   Others may wrap.
@@ -304,12 +304,12 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            cout<<"CLOMP_flopScale == 1"<<endl;
+            //cout<<"CLOMP_flopScale == 1"<<endl;
             DerefScope vScope;
             for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope); zone->m_pNextZone != nullptr;
                  zone = zone->m_pNextZone->deref_mut(vScope))
             {
-                 cout<<"Looping_CLOMP_flopScale == 1"<<endl;
+                 //cout<<"Looping_CLOMP_flopScale == 1"<<endl;
                 /* Calculate the deposit for this zone */
                 deposit = remaining_deposit * m_dDeposit_ratio;
 
@@ -324,7 +324,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
         /* Otherwise, if CLOMP_flopScale != 1, use inner loop version */
         else
         {
-            cout<<"CLOMP_flopScale != 1"<<endl;
+            //cout<<"CLOMP_flopScale != 1"<<endl;
             /* Run through each zone, depositing 'm_dDeposit_ratio' part of the
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
@@ -333,7 +333,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
             for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
                  zone->m_pNextZone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
             {
-                cout<<"Looping_CLOMP_flopScale != 1"<<endl;
+                //cout<<"Looping_CLOMP_flopScale != 1"<<endl;
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
@@ -362,7 +362,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
 /* Resets parts to initial state and warms up cache */
 void reinitialize_parts()
 {
-    cout << "reinitializing parts\n";
+  //  cout << "reinitializing parts\n";
     unsigned long pidx;
     // SharedPtr<Zone> *zone;
 
@@ -739,7 +739,7 @@ double calc_deposit()
  */
 void do_calc_deposit_only()
 {
-    cout << "do_calc_deposit_only\n";
+  //  cout << "do_calc_deposit_only\n";
     long iteration, subcycle;
 
     /* Do all the iterations */
@@ -779,7 +779,7 @@ void do_calc_deposit_only()
 /* Do module one's work serially (contains 1 subcycle) */
 void serial_ref_module1()
 {
-    cout << "serial_ref_module1" << endl;
+  //  cout << "serial_ref_module1" << endl;
     double deposit;
     long pidx;
 
@@ -798,7 +798,7 @@ void serial_ref_module1()
 /* Do module two's work serially (contains 2 subcycles) */
 void serial_ref_module2()
 {
-    cout << "serial_ref_module2" << endl;
+  //  cout << "serial_ref_module2" << endl;
     double deposit;
     long pidx;
 
@@ -830,7 +830,7 @@ void serial_ref_module2()
 /* Do module three's work serially (contains 3 subcycles) */
 void serial_ref_module3()
 {
-    cout << "serial_ref_module3" << endl;
+  //  cout << "serial_ref_module3" << endl;
     double deposit;
     long pidx;
 
@@ -871,7 +871,7 @@ void serial_ref_module3()
 /* Do module four's work serially (contains 4 subcycles) */
 void serial_ref_module4()
 {
-    cout << "serial_ref_module4" << endl;
+  //  cout << "serial_ref_module4" << endl;
     double deposit;
 
     /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
@@ -922,7 +922,7 @@ void serial_ref_module4()
 /* Do one cycle (10 subcycles) serially, no OpenMP */
 void serial_ref_cycle()
 {
-    cout << "serial_ref_cycle" << endl;
+  //  cout << "serial_ref_cycle" << endl;
     /* Emulate calls to 4 different packages, do 10 subcycles total */
     serial_ref_module1();
     serial_ref_module2();
@@ -933,7 +933,7 @@ void serial_ref_cycle()
 /* Do all the cycles (10 subcycles/cycle) serially, no OpenMP */
 void do_serial_ref_version()
 {
-    cout << "do_serial_ref_version" << endl;
+  //  cout << "do_serial_ref_version" << endl;
     long iteration;
 
     /* Do the specified number of iterations */
@@ -1021,9 +1021,9 @@ void addZone(unsigned long iPartId, unsigned long iZoneID)
     //  g_paZoneArray.push_back(&far_mem_manager->allocate_shared_ptr<CZone>());
     //  auto raw_zone_ptr = new CZone();
     //  raw_zone_ptr->value = 15;
-    //  cout << "raw_mut_ptr:" << raw_zone_ptr << endl;
+    ////  cout << "raw_mut_ptr:" << raw_zone_ptr << endl;
     //  g_paZoneArray[iZoneVectorCurrentZize]->write(*raw_zone_ptr);
-    //  cout << "g_paZoneArray[iZoneVectorCurrentZize].deref_mut(vScope)->value:" << g_paZoneArray[iZoneVectorCurrentZize]->deref_mut(vScope)->value << endl;
+    ////  cout << "g_paZoneArray[iZoneVectorCurrentZize].deref_mut(vScope)->value:" << g_paZoneArray[iZoneVectorCurrentZize]->deref_mut(vScope)->value << endl;
 
     // cout << "g_paZoneArray[iZoneVectorCurrentZize]:" << g_paZoneArray[iZoneVectorCurrentZize] << endl;
 
@@ -1262,7 +1262,7 @@ void _main(void *arg)
         addPart(iPartId);
         // cout << "part added: " << iPartId << "\n";
     }
-    cout << "Parts added successfully.\n";
+  //  cout << "Parts added successfully.\n";
 
     for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
@@ -1273,7 +1273,7 @@ void _main(void *arg)
         }
     }
 
-    cout << "Zones added successfully.\n";
+  //  cout << "Zones added successfully.\n";
 
     /* Calculate the total number of zones */
     totalZoneCount = (double)CLOMP_numParts * (double)CLOMP_zonesPerPart;
