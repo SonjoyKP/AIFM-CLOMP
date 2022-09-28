@@ -106,7 +106,7 @@ using namespace std;
 constexpr unsigned long CLOMP_numThreads = 1;    /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_allocThreads = 1;  /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_numParts = 16;     /* > 0 valid */
-constexpr unsigned long CLOMP_zonesPerPart = 40; /* > 0 valid */
+constexpr unsigned long CLOMP_zonesPerPart = 400; /* > 0 valid */
 constexpr unsigned long CLOMP_zoneSize = 32;     /* > 0 valid, (sizeof(Zone) true min)*/
 constexpr unsigned long CLOMP_flopScale = 1;     /* > 0 valid, 1 nominal */
 constexpr unsigned long CLOMP_timeScale = 100;   /* > 0 valid, 100 nominal */
@@ -269,7 +269,7 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
 
 void update_part(u_int64_t iPartId, double incoming_deposit)
 {
-  //  cout << "update_part" << endl;
+    //  cout << "update_part" << endl;
 
     double m_dDeposit_ratio, remaining_deposit, deposit;
     long scale_count;
@@ -279,7 +279,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
             DerefScope vScope;
             part_raw_ptr = g_paPartArray[iPartId].deref_mut(vScope);
         }
-        //cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
+        // cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
 
         /* Update count of updates for this part (for error checking)
          * Just part 0's count will be zeroed regularly.   Others may wrap.
@@ -304,12 +304,12 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            //cout<<"CLOMP_flopScale == 1"<<endl;
+            // cout<<"CLOMP_flopScale == 1"<<endl;
             DerefScope vScope;
             for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope); zone->m_pNextZone != nullptr;
                  zone = zone->m_pNextZone->deref_mut(vScope))
             {
-                 //cout<<"Looping_CLOMP_flopScale == 1"<<endl;
+                // cout<<"Looping_CLOMP_flopScale == 1"<<endl;
                 /* Calculate the deposit for this zone */
                 deposit = remaining_deposit * m_dDeposit_ratio;
 
@@ -324,7 +324,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
         /* Otherwise, if CLOMP_flopScale != 1, use inner loop version */
         else
         {
-            //cout<<"CLOMP_flopScale != 1"<<endl;
+            // cout<<"CLOMP_flopScale != 1"<<endl;
             /* Run through each zone, depositing 'm_dDeposit_ratio' part of the
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
@@ -333,7 +333,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
             for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
                  zone->m_pNextZone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
             {
-                //cout<<"Looping_CLOMP_flopScale != 1"<<endl;
+                // cout<<"Looping_CLOMP_flopScale != 1"<<endl;
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
@@ -362,7 +362,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
 /* Resets parts to initial state and warms up cache */
 void reinitialize_parts()
 {
-  //  cout << "reinitializing parts\n";
+    //  cout << "reinitializing parts\n";
     unsigned long pidx;
     // SharedPtr<Zone> *zone;
 
@@ -739,7 +739,7 @@ double calc_deposit()
  */
 void do_calc_deposit_only()
 {
-  //  cout << "do_calc_deposit_only\n";
+    //  cout << "do_calc_deposit_only\n";
     long iteration, subcycle;
 
     /* Do all the iterations */
@@ -757,7 +757,7 @@ void do_calc_deposit_only()
 
             /* Fool calc_deposit sanity checks for this timing measurement */
             zero_index_part_raw_ptr->m_iUpdate_count = 1;
-            //cout << "Updated count: " << zero_index_part_raw_ptr->m_iUpdate_count << endl;
+            // cout << "Updated count: " << zero_index_part_raw_ptr->m_iUpdate_count << endl;
 
             /* Calc value, write into first zone's value, in order
              * to prevent compiler optimizing away
@@ -765,11 +765,11 @@ void do_calc_deposit_only()
             {
 
                 auto zero_firstZone_far_mem_ptr = zero_index_part_raw_ptr->m_pFirstZone;
-                //cout << "zero_firstZone_far_mem_ptr" << zero_firstZone_far_mem_ptr << endl;
+                // cout << "zero_firstZone_far_mem_ptr" << zero_firstZone_far_mem_ptr << endl;
 
                 DerefScope vScope;
                 auto zero_firstZone_raw_ptr = zero_firstZone_far_mem_ptr->deref_mut(vScope);
-                //cout << "zero_firstZone_raw_ptr:" << zero_firstZone_raw_ptr << endl;
+                // cout << "zero_firstZone_raw_ptr:" << zero_firstZone_raw_ptr << endl;
                 zero_firstZone_raw_ptr->value = calc_deposit();
             }
         }
@@ -779,7 +779,7 @@ void do_calc_deposit_only()
 /* Do module one's work serially (contains 1 subcycle) */
 void serial_ref_module1()
 {
-  //  cout << "serial_ref_module1" << endl;
+    //  cout << "serial_ref_module1" << endl;
     double deposit;
     long pidx;
 
@@ -798,7 +798,7 @@ void serial_ref_module1()
 /* Do module two's work serially (contains 2 subcycles) */
 void serial_ref_module2()
 {
-  //  cout << "serial_ref_module2" << endl;
+    //  cout << "serial_ref_module2" << endl;
     double deposit;
     long pidx;
 
@@ -830,7 +830,7 @@ void serial_ref_module2()
 /* Do module three's work serially (contains 3 subcycles) */
 void serial_ref_module3()
 {
-  //  cout << "serial_ref_module3" << endl;
+    //  cout << "serial_ref_module3" << endl;
     double deposit;
     long pidx;
 
@@ -871,7 +871,7 @@ void serial_ref_module3()
 /* Do module four's work serially (contains 4 subcycles) */
 void serial_ref_module4()
 {
-  //  cout << "serial_ref_module4" << endl;
+    //  cout << "serial_ref_module4" << endl;
     double deposit;
 
     /* ---------------- SUBCYCLE 1 OF 4 ----------------- */
@@ -922,7 +922,7 @@ void serial_ref_module4()
 /* Do one cycle (10 subcycles) serially, no OpenMP */
 void serial_ref_cycle()
 {
-  //  cout << "serial_ref_cycle" << endl;
+    //  cout << "serial_ref_cycle" << endl;
     /* Emulate calls to 4 different packages, do 10 subcycles total */
     serial_ref_module1();
     serial_ref_module2();
@@ -933,7 +933,7 @@ void serial_ref_cycle()
 /* Do all the cycles (10 subcycles/cycle) serially, no OpenMP */
 void do_serial_ref_version()
 {
-  //  cout << "do_serial_ref_version" << endl;
+    //  cout << "do_serial_ref_version" << endl;
     long iteration;
 
     /* Do the specified number of iterations */
@@ -949,8 +949,8 @@ void do_serial_ref_version()
  */
 void addPart(unsigned long iPartId)
 {
-    //cout << "addPart" << endl;
-    // cout << "part add:" << part << endl;
+    // cout << "addPart" << endl;
+    //  cout << "part add:" << part << endl;
     /* Sanity check, make sure m_iPartId valid */
     if ((iPartId < 0) || (iPartId >= CLOMP_numParts))
     {
@@ -1013,7 +1013,7 @@ void addPart(unsigned long iPartId)
  */
 void addZone(unsigned long iPartId, unsigned long iZoneID)
 {
-    //cout << "addZone" << endl;
+    // cout << "addZone" << endl;
 
     DerefScope vScope;
 
@@ -1032,12 +1032,12 @@ void addZone(unsigned long iPartId, unsigned long iZoneID)
         DerefScope vOuterScope;
         current_part_lastZone_far_mem_ptr = g_paPartArray[iPartId].deref_mut(vOuterScope)->m_pLastZone;
     }
-    //cout << "g_paZoneArray[iPartId][iZoneID]:" << &g_paZoneArray[iPartId][iZoneID] << endl;
+    // cout << "g_paZoneArray[iPartId][iZoneID]:" << &g_paZoneArray[iPartId][iZoneID] << endl;
 
     /* If not existing zones, place at head of list */
     if (current_part_lastZone_far_mem_ptr == nullptr)
     {
-        //cout << "Entered in If block.\n";
+        // cout << "Entered in If block.\n";
         DerefScope vInternalScope;
         /* Give first zone a zoneId of 1 */
         g_paZoneArray[iPartId][iZoneID].deref_mut(vInternalScope)->m_iZoneId = 1;
@@ -1045,14 +1045,14 @@ void addZone(unsigned long iPartId, unsigned long iZoneID)
         /* First and last zone */
         g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pFirstZone = &g_paZoneArray[iPartId][iZoneID];
         g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone = &g_paZoneArray[iPartId][iZoneID];
-        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope) << endl;
-        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone << endl;
-        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope) << endl;
-        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope) << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope) << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value << endl;
     }
     else /* Otherwise, put after last zone */
     {
-        //cout << "Entered in else block.\n";
+        // cout << "Entered in else block.\n";
 
         DerefScope vInternalScope;
         // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope) << endl;
@@ -1262,7 +1262,7 @@ void _main(void *arg)
         addPart(iPartId);
         // cout << "part added: " << iPartId << "\n";
     }
-  //  cout << "Parts added successfully.\n";
+    //  cout << "Parts added successfully.\n";
 
     for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
@@ -1273,7 +1273,7 @@ void _main(void *arg)
         }
     }
 
-  //  cout << "Zones added successfully.\n";
+    //  cout << "Zones added successfully.\n";
 
     /* Calculate the total number of zones */
     totalZoneCount = (double)CLOMP_numParts * (double)CLOMP_zonesPerPart;
@@ -1333,7 +1333,7 @@ void _main(void *arg)
             DerefScope vScope;
             part_raw_ptr = g_paPartArray[iPartId].deref_mut(vScope);
         }
-        cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
+        // cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
         percent_residue += part_raw_ptr->m_dResidue;
 
         /* The 'next' deposit is smaller than any actual deposit made in
@@ -1414,8 +1414,6 @@ void _main(void *arg)
      * specified. Because we are using alloc threads also, have to explicitly
      * set even if using system default
      */
-    // omp_set_num_threads ((int)CLOMP_numThreads);
-
     /* Print initial line bar separator */
     printf("---------------------\n");
 
@@ -1458,13 +1456,10 @@ void _main(void *arg)
     print_pseudocode("Serial Ref", "/* Measure serial reference performance */");
     print_pseudocode("Serial Ref", "deposit = calc_deposit ();");
     print_pseudocode("Serial Ref", "for (pidx = 0; pidx < numParts; pidx++)");
-    print_pseudocode("Serial Ref", "  update_part (g_paPartArray[pidx], deposit);");
+    print_pseudocode("Serial Ref", "  update_part (partArray[pidx], deposit);");
     print_pseudocode("Serial Ref", "------- End Serial Ref Pseudocode -------");
     print_start_message("Serial Ref");
-    //#ifdef WITH_MPI
-    /* Ensure all MPI tasks run OpenMP at the same time */
-    // MPI_Barrier (MPI_COMM_WORLD);
-    //#endif
+
     get_timestamp(&serial_ref_start_ts);
     do_serial_ref_version();
     get_timestamp(&serial_ref_end_ts);
@@ -1479,7 +1474,7 @@ void _main(void *arg)
                                          &serial_ref_end_ts, -1.0, -1.0);
 
     printf("----------- Comma-delimited summary ----------\n");
-    printf("%s %ld %ld %ld %ld %ld %ld %ld, calc_deposit, OMP Barrier, Serial Ref, Bestcase OMP, Static OMP, Dynamic OMP, Manual OMP\n",
+    printf("%s %ld %ld %ld %ld %ld %ld %ld, calc_deposit, Serial Ref\n",
            CLOMP_exe_name,
            CLOMP_numThreads,
            CLOMP_inputAllocThreads,
@@ -1489,30 +1484,18 @@ void _main(void *arg)
            CLOMP_flopScale,
            CLOMP_timeScale);
 
-    printf("Runtime, %7.3f, %7.3f\n",
-           calc_deposit_seconds,
-           // omp_barrier_seconds,
-           serial_ref_seconds);
-    // bestcase_omp_seconds,
-    // static_omp_seconds,
-    // dynamic_omp_seconds,
-    // manual_omp_seconds);
+    printf("Runtime, %7.3f, %7.3f\n", calc_deposit_seconds, serial_ref_seconds);
 
 #undef us_loop
 #define us_loop(sec) (((sec * 1000000.0) / ((double)CLOMP_num_iterations * 10.0)))
-    printf("us/Loop, %7.2f, %7.2f\n",
-           us_loop(calc_deposit_seconds),
-           us_loop(serial_ref_seconds));
+    printf("us/Loop, %7.2f, %7.2f\n", us_loop(calc_deposit_seconds), us_loop(serial_ref_seconds));
 
 #undef speedup
 #define speedup(sec) ((serial_ref_seconds / sec))
-    printf("Speedup,     N/A,     N/A, %7.1f\n",
-           speedup(serial_ref_seconds));
+    printf("Speedup,     N/A,     N/A, %7.1f\n", speedup(serial_ref_seconds));
 
     {
-        char mpi_marker[100] = "";
-        printf("CORAL RFP, %s%ld %ld %ld %ld %ld %ld %ld, %.2f\n",
-               mpi_marker,
+        printf("CORAL RFP, %ld %ld %ld %ld %ld %ld %ld, %.2f\n",
                CLOMP_numThreads,
                CLOMP_inputAllocThreads,
                CLOMP_numParts,
