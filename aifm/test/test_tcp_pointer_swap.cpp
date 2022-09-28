@@ -757,7 +757,7 @@ void do_calc_deposit_only()
 
             /* Fool calc_deposit sanity checks for this timing measurement */
             zero_index_part_raw_ptr->m_iUpdate_count = 1;
-            cout << "Updated count: " << zero_index_part_raw_ptr->m_iUpdate_count << endl;
+            //cout << "Updated count: " << zero_index_part_raw_ptr->m_iUpdate_count << endl;
 
             /* Calc value, write into first zone's value, in order
              * to prevent compiler optimizing away
@@ -765,11 +765,11 @@ void do_calc_deposit_only()
             {
 
                 auto zero_firstZone_far_mem_ptr = zero_index_part_raw_ptr->m_pFirstZone;
-                cout << "zero_firstZone_far_mem_ptr" << zero_firstZone_far_mem_ptr << endl;
+                //cout << "zero_firstZone_far_mem_ptr" << zero_firstZone_far_mem_ptr << endl;
 
                 DerefScope vScope;
                 auto zero_firstZone_raw_ptr = zero_firstZone_far_mem_ptr->deref_mut(vScope);
-                cout << "zero_firstZone_raw_ptr:" << zero_firstZone_raw_ptr << endl;
+                //cout << "zero_firstZone_raw_ptr:" << zero_firstZone_raw_ptr << endl;
                 zero_firstZone_raw_ptr->value = calc_deposit();
             }
         }
