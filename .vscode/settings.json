@@ -67,6 +67,7 @@
         "typeinfo": "cpp",
         "valarray": "cpp",
         "bit": "cpp",
-        "netfwd": "cpp"
+        "netfwd": "cpp",
+        "*.txt": "cpp"
     }
 }

@@ -94,18 +94,11 @@ extern "C"
 
 #include <stdio.h>
 #include <stdlib.h>
-//#include <omp.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
 #include <math.h>
-//#ifdef WITH_MPI
-// #include <mpi.h>
-// #include <stdarg.h>
-// int rank=0;
-// int numtasks=0;
-// #endif
 
 using namespace far_memory;
 using namespace std;
@@ -118,7 +111,7 @@ constexpr unsigned long CLOMP_zoneSize = 32;     /* > 0 valid, (sizeof(Zone) tru
 constexpr unsigned long CLOMP_flopScale = 1;     /* > 0 valid, 1 nominal */
 constexpr unsigned long CLOMP_timeScale = 100;   /* > 0 valid, 100 nominal */
 
-long iCurrentZoneLoc = 0;
+// long iCurrentZoneLoc = 0;
 
 char *CLOMP_exe_name = NULL; /* Points to argv[0] */
 
@@ -144,8 +137,7 @@ public:
     unsigned long m_iPartId;
     unsigned long m_iZoneCount;
     unsigned long m_iUpdate_count;
-    // SharedPtr<Zone> *m_pFirstZone;
-    // SharedPtr<Zone> *m_pLastZone;
+
     SharedPtr<CZone> *m_pFirstZone = nullptr;
     SharedPtr<CZone> *m_pLastZone = nullptr;
 
@@ -156,15 +148,11 @@ public:
 };
 
 /* Part array working on (now array of Part pointers)*/
-far_memory::Array<SharedPtr<CPart>, CLOMP_numParts> *g_paPartArray;
-
-// constexpr static uint64_t kCacheSize = (128ULL << 20);
-// constexpr static uint64_t kFarMemSize = (4ULL << 30);
-// constexpr static uint32_t kNumGCThreads = 12;
-// constexpr static uint32_t kNumEntries = (8ULL << 20); // So the array size is larger than the local cache size.
-// constexpr static uint32_t kNumConnections = 300;
+// far_memory::Array<SharedPtr<CPart>, CLOMP_numParts> *g_paPartArray;
 
 FarMemManager *far_mem_manager;
+std::vector<SharedPtr<CPart>> g_paPartArray;
+std::vector<std::vector<SharedPtr<CZone>>> g_paZoneArray;
 
 /* Used to avoid dividing by numParts */
 double CLOMP_partRatio = 0.0;
@@ -279,28 +267,29 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
     return (val);
 }
 
-void update_part(SharedPtr<CPart> *part, double incoming_deposit)
+void update_part(u_int64_t iPartId, double incoming_deposit)
 {
-    // SharedPtr<Zone> *zone;
-    // cout << "update_part" << endl;
+    cout << "update_part" << endl;
+
     double m_dDeposit_ratio, remaining_deposit, deposit;
     long scale_count;
-
     {
-        DerefScope vScope;
-        auto pPart = part->deref_mut(vScope);
-
-        // auto pZone = zone->deref_mut(vScope);
+        CPart *part_raw_ptr = nullptr;
+        {
+            DerefScope vScope;
+            part_raw_ptr = g_paPartArray[iPartId].deref_mut(vScope);
+        }
+        cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
 
         /* Update count of updates for this part (for error checking)
          * Just part 0's count will be zeroed regularly.   Others may wrap.
          */
         // cout << "   access pPart" << endl;
-        pPart->m_iUpdate_count++;
+        part_raw_ptr->m_iUpdate_count++;
 
         /* Get the m_dDeposit_ratio from part*/
 
-        m_dDeposit_ratio = pPart->m_dDeposit_ratio;
+        m_dDeposit_ratio = part_raw_ptr->m_dDeposit_ratio;
 
         /* Initially, the remaining_deposit is the incoming deposit */
         remaining_deposit = incoming_deposit;
@@ -315,10 +304,12 @@ void update_part(SharedPtr<CPart> *part, double incoming_deposit)
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-
-            for (auto zone = pPart->m_pFirstZone->deref_mut(vScope); zone != NULL;
+            cout<<"CLOMP_flopScale == 1"<<endl;
+            DerefScope vScope;
+            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope); zone->m_pNextZone != nullptr;
                  zone = zone->m_pNextZone->deref_mut(vScope))
             {
+                 cout<<"Looping_CLOMP_flopScale == 1"<<endl;
                 /* Calculate the deposit for this zone */
                 deposit = remaining_deposit * m_dDeposit_ratio;
 
@@ -333,14 +324,16 @@ void update_part(SharedPtr<CPart> *part, double incoming_deposit)
         /* Otherwise, if CLOMP_flopScale != 1, use inner loop version */
         else
         {
+            cout<<"CLOMP_flopScale != 1"<<endl;
             /* Run through each zone, depositing 'm_dDeposit_ratio' part of the
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            for (auto zone = pPart->m_pFirstZone->deref_mut(vScope);
-                 zone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
+            DerefScope vScope;
+            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
+                 zone->m_pNextZone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
             {
-                cout << "   Loop Thru zones in update parts" << endl;
+                cout<<"Looping_CLOMP_flopScale != 1"<<endl;
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
@@ -362,7 +355,7 @@ void update_part(SharedPtr<CPart> *part, double incoming_deposit)
         }
 
         /* Put the left over deposit in the Part's m_dResidue field */
-        pPart->m_dResidue = remaining_deposit;
+        part_raw_ptr->m_dResidue = remaining_deposit;
     }
 }
 
@@ -378,33 +371,35 @@ void reinitialize_parts()
     /* Reset all the zone values to 0.0 and the part m_dResidue to 0.0 */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto &pointer_loc = g_paPartArray->at_mut(vScope, pidx);
-        auto part_ptr = &pointer_loc;
-        auto partArray_index = part_ptr->deref_mut(vScope);
-
-        for (auto zone = partArray_index->m_pFirstZone->deref_mut(vScope);
-             zone != NULL;
-             zone = zone->m_pNextZone->deref_mut(vScope))
+        CPart *part_raw_ptr = nullptr;
         {
-            /* Reset zone's value to 0 */
-            zone->value = 0.0;
+            DerefScope vInternalScope;
+            part_raw_ptr = g_paPartArray[pidx].deref_mut(vInternalScope);
+        }
+
+        {
+            DerefScope vInternalScope;
+            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vInternalScope);
+                 zone->m_pNextZone != NULL;
+                 zone = zone->m_pNextZone->deref_mut(vInternalScope))
+            {
+                /* Reset zone's value to 0 */
+                zone->value = 0.0;
+            }
         }
 
         /* Reset m_dResidue */
-        partArray_index->m_dResidue = 0.0;
+        part_raw_ptr->m_dResidue = 0.0;
 
         /* Reset update count */
-        partArray_index->m_iUpdate_count = 0;
+        part_raw_ptr->m_iUpdate_count = 0;
     }
 
     /* Scan through zones and add zero to each zone to warm up cache*/
     /* Also sets each zone m_iUpdate_count to 1, which sanity check wants */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArrayIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArrayIndexPtr, 0.0);
+        update_part(pidx, 0.0);
     }
 }
 
@@ -547,12 +542,13 @@ void print_data_stats(const char *desc)
          * and the part m_dResidue for comparison later
          */
 
-        DerefScope vScope;
-        auto pArryIndexPointer = (&(g_paPartArray->at_mut(vScope, pidx)))->deref_mut(vScope);
+        CPart *part_raw_ptr = nullptr;
         if (is_reference)
         {
-            pArryIndexPointer->m_dExpected_first_value = pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value;
-            pArryIndexPointer->m_dExpected_residue = pArryIndexPointer->m_dResidue;
+            DerefScope vScope;
+            part_raw_ptr = g_paPartArray[pidx].deref_mut(vScope);
+            part_raw_ptr->m_dExpected_first_value = part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value;
+            part_raw_ptr->m_dExpected_residue = part_raw_ptr->m_dResidue;
         }
 
         /* Otherwise, make sure this part matches the expected values
@@ -564,52 +560,58 @@ void print_data_stats(const char *desc)
          */
         else
         {
+            DerefScope vScope;
             /* Check that first zone's value is what is expected */
-            if (pArryIndexPointer->m_dExpected_first_value != pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value)
+            if (part_raw_ptr->m_dExpected_first_value != part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value)
             {
+                DerefScope vScope;
                 error_count++;
                 fprintf(stderr,
                         "%s check failure: part %i first zone value (%g) != reference value (%g)!\n",
-                        desc, (int)pidx, pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value,
-                        pArryIndexPointer->m_dExpected_first_value);
+                        desc, (int)pidx, part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value,
+                        part_raw_ptr->m_dExpected_first_value);
             }
-            if (pArryIndexPointer->m_dExpected_residue != pArryIndexPointer->m_dResidue)
+            if (part_raw_ptr->m_dExpected_residue != part_raw_ptr->m_dResidue)
             {
+                DerefScope vScope;
                 error_count++;
-                fprintf(stderr,
-                        "%s check failure: part %i m_dResidue (%g) != reference m_dResidue (%g)!\n",
-                        desc, (int)pidx, pArryIndexPointer->m_dResidue,
-                        pArryIndexPointer->m_dExpected_residue);
+                printf("%s check failure: part %i m_dResidue (%g) != reference m_dResidue (%g)!\n",
+                       desc, (int)pidx, part_raw_ptr->m_dResidue, part_raw_ptr->m_dExpected_residue);
             }
         }
 
-        /* Use first zone's value as initial last_value */
-        last_value = pArryIndexPointer->m_pFirstZone->deref_mut(vScope)->value;
-
-        /* Scan through zones checking that values decrease monotonically */
-        for (auto zone = pArryIndexPointer->m_pFirstZone->deref_mut(vScope);
-             zone != NULL;
-             zone = zone->m_pNextZone->deref_mut(vScope))
         {
-            if (zone->value > last_value)
-            {
-                fprintf(stderr,
-                        "*** %s check failure (part %i zone %i): "
-                        "previous (%g) < current (%g)!\n",
-                        desc, (int)zone->m_iPartId,
-                        (int)zone->m_iZoneId, last_value, zone->value);
-                error_count++;
-            }
-
-            /* Sum up values */
-            value_sum += zone->value;
-
-            /* This value now is last_value */
-            last_value = zone->value;
+            DerefScope vScope;
+            last_value = part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value;
         }
+        /* Use first zone's value as initial last_value */
 
+        {
+            DerefScope vScope;
+
+            /* Scan through zones checking that values decrease monotonically */
+            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
+                 zone->m_pNextZone != NULL;
+                 zone = zone->m_pNextZone->deref_mut(vScope))
+            {
+                if (zone->value > last_value)
+                {
+                    printf("*** %s check failure (part %i zone %i): "
+                           "previous (%g) < current (%g)!\n",
+                           desc, (int)zone->m_iPartId,
+                           (int)zone->m_iZoneId, last_value, zone->value);
+                    error_count++;
+                }
+
+                /* Sum up values */
+                value_sum += zone->value;
+
+                /* This value now is last_value */
+                last_value = zone->value;
+            }
+        }
         /* Sum up part m_dResidue's */
-        residue_sum += pArryIndexPointer->m_dResidue;
+        residue_sum += part_raw_ptr->m_dResidue;
     }
 
     /* Calculate the total of value_sum + residue_sum.  This should
@@ -621,46 +623,46 @@ void print_data_stats(const char *desc)
     if (((dtotal + 0.00001) < ((double)CLOMP_num_iterations * 10.0)) ||
         ((dtotal - 0.00001) > ((double)CLOMP_num_iterations * 10.0)))
     {
-        fprintf(stderr,
-                "*** %s check failure:  Total (%-.15g) != Expected (%.15g)\n",
-                desc, dtotal, ((double)CLOMP_num_iterations * 10.0));
+        printf("*** %s check failure:  Total (%-.15g) != Expected (%.15g)\n",
+               desc, dtotal, ((double)CLOMP_num_iterations * 10.0));
         error_count++;
     }
 
     /* Sanity check, m_dResidue must be within reasonable bounds */
     if ((residue_sum < 0.0) || (residue_sum > (CLOMP_max_residue + 0.000001)))
     {
-        fprintf(stderr,
-                "*** %s check failure: Residue (%-.15g) outside bounds 0 - %.15g\n",
-                desc, residue_sum, CLOMP_max_residue);
+        printf("*** %s check failure: Residue (%-.15g) outside bounds 0 - %.15g\n",
+               desc, residue_sum, CLOMP_max_residue);
         error_count++;
     }
 
     /* Make sure part 0's update count is exactly one.  This detects
      * illegal optimization of calc_deposit().
      */
-    DerefScope vScope;
-    auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)))->deref_mut(vScope);
-    if (pPartArryFirstIndexPtr->m_iUpdate_count != 1)
+    CPart *zero_index_part_raw_ptr = nullptr;
     {
-        fprintf(stderr, "Error in calc_deposit: Part updated %i times since last calc_deposit!\n",
-                (int)pPartArryFirstIndexPtr->m_iUpdate_count);
-        fprintf(stderr, "Benchmark designed to have calc_deposit called exactly once per update!\n");
-        fprintf(stderr, "Critical error: Exiting...\n");
+        DerefScope vScope;
+        zero_index_part_raw_ptr = g_paPartArray[0].deref_mut(vScope);
+    }
+
+    if (zero_index_part_raw_ptr->m_iUpdate_count != 1)
+    {
+        printf("Error in calc_deposit: Part updated %i times since last calc_deposit!\n",
+               (int)zero_index_part_raw_ptr->m_iUpdate_count);
+        printf("Benchmark designed to have calc_deposit called exactly once per update!\n");
+        printf("Critical error: Exiting...\n");
         exit(1);
     }
 
     if (error_count > 0)
     {
-        fprintf(stderr,
-                "ERROR: %i check failures detected in '%s' data. Exiting...\n",
-                error_count, desc);
+        printf("ERROR: %i check failures detected in '%s' data. Exiting...\n",
+               error_count, desc);
         exit(1);
     }
 
     /* Print out check text so results can be visually inspected */
-    printf("%13s Checksum: Sum=%-8.8g Residue=%-8.8g Total=%-.9g\n",
-           desc, value_sum, residue_sum, dtotal);
+    printf("%13s Checksum: Sum=%-8.8g Residue=%-8.8g Total=%-.9g\n", desc, value_sum, residue_sum, dtotal);
 }
 
 /* Calculates the amount to deposit in each part this subcycle.
@@ -681,21 +683,24 @@ double calc_deposit()
      * This code cannot be pulled out of loops or above loops!
      * Only check/update part 0 (other counts will just continue and may wrap)
      */
-    DerefScope vScope;
-    auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
-    if (pPartArryFirstIndexPtr->m_iUpdate_count != 1)
+    CPart *zero_index_part_raw_ptr = nullptr;
     {
-        fprintf(stderr, "Error in calc_deposit: Part updated %i times since last call!\n",
-                (int)pPartArryFirstIndexPtr->m_iUpdate_count);
-        fprintf(stderr, "Benchmark designed to have calc_deposit called exactly once per update!\n");
-        fprintf(stderr, "Critical error: Exiting...\n");
+        DerefScope vScope;
+        zero_index_part_raw_ptr = g_paPartArray[0].deref_mut(vScope);
+    }
+    if (zero_index_part_raw_ptr->m_iUpdate_count != 1)
+    {
+        printf("Error in calc_deposit: Part updated %i times since last call!\n",
+               (int)zero_index_part_raw_ptr->m_iUpdate_count);
+        printf("Benchmark designed to have calc_deposit called exactly once per update!\n");
+        printf("Critical error: Exiting...\n");
         exit(1);
     }
 
     /* Mark that we are using the updated info, so we can detect if this
      * code has been moved illegally.
      */
-    pPartArryFirstIndexPtr->m_iUpdate_count = 0;
+    zero_index_part_raw_ptr->m_iUpdate_count = 0;
 
     /* Calculate m_dResidue from previous subcycle (normally this is done
      * with an MPI data exchange to other domains, but emulate here).
@@ -717,7 +722,7 @@ double calc_deposit()
      * be used from calculation to prevent undesired optimizations.
      * Hopefully using part 0's data will be enough -JCG 17Dec2013
      */
-    m_dResidue = pPartArryFirstIndexPtr->m_dResidue * CLOMP_residue_ratio_part0;
+    m_dResidue = zero_index_part_raw_ptr->m_dResidue * CLOMP_residue_ratio_part0;
 
     /* Calculate deposit for this subcycle based on m_dResidue and part ratio */
     deposit = (1.0 + m_dResidue) * CLOMP_partRatio;
@@ -744,18 +749,29 @@ void do_calc_deposit_only()
         for (subcycle = 0; subcycle < 10; subcycle++)
         {
 
-            DerefScope vScope;
-            auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
+            CPart *zero_index_part_raw_ptr = nullptr;
+            {
+                DerefScope vScope;
+                zero_index_part_raw_ptr = g_paPartArray[0].deref_mut(vScope);
+            }
+
             /* Fool calc_deposit sanity checks for this timing measurement */
-            pPartArryFirstIndexPtr->m_iUpdate_count = 1;
-            cout << "Updated count: " << pPartArryFirstIndexPtr->m_iUpdate_count << endl;
+            zero_index_part_raw_ptr->m_iUpdate_count = 1;
+            cout << "Updated count: " << zero_index_part_raw_ptr->m_iUpdate_count << endl;
 
             /* Calc value, write into first zone's value, in order
              * to prevent compiler optimizing away
              */
-            cout << "pPartArryFirstIndexPtr->m_pFirstZone:" << pPartArryFirstIndexPtr->m_pFirstZone << endl;
-            cout << "pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope):" << pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope) << endl;
-            pPartArryFirstIndexPtr->m_pFirstZone->deref_mut(vScope)->value = calc_deposit();
+            {
+
+                auto zero_firstZone_far_mem_ptr = zero_index_part_raw_ptr->m_pFirstZone;
+                cout << "zero_firstZone_far_mem_ptr" << zero_firstZone_far_mem_ptr << endl;
+
+                DerefScope vScope;
+                auto zero_firstZone_raw_ptr = zero_firstZone_far_mem_ptr->deref_mut(vScope);
+                cout << "zero_firstZone_raw_ptr:" << zero_firstZone_raw_ptr << endl;
+                zero_firstZone_raw_ptr->value = calc_deposit();
+            }
         }
     }
 }
@@ -775,9 +791,7 @@ void serial_ref_module1()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 }
 
@@ -796,9 +810,9 @@ void serial_ref_module2()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        // DerefScope vScope;
+        // auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 2 ----------------- */
@@ -809,9 +823,7 @@ void serial_ref_module2()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 }
 
@@ -830,9 +842,7 @@ void serial_ref_module3()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 3 ----------------- */
@@ -843,9 +853,7 @@ void serial_ref_module3()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 3 OF 3 ----------------- */
@@ -856,9 +864,7 @@ void serial_ref_module3()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 }
 
@@ -876,9 +882,7 @@ void serial_ref_module4()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 2 OF 4 ----------------- */
@@ -889,9 +893,7 @@ void serial_ref_module4()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 3 OF 4 ----------------- */
@@ -902,9 +904,7 @@ void serial_ref_module4()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 
     /* ---------------- SUBCYCLE 4 OF 4 ----------------- */
@@ -915,9 +915,7 @@ void serial_ref_module4()
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
     for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
-        update_part(pPartArryIndexPtr, deposit);
+        update_part(pidx, deposit);
     }
 }
 
@@ -949,35 +947,35 @@ void do_serial_ref_version()
  * The g_paPartArray has to be allocated by one thread but it is not
  * modified during the run.
  */
-void addPart(SharedPtr<CPart> *part, unsigned long m_iPartId)
+void addPart(unsigned long iPartId)
 {
-    cout << "addPart" << endl;
-    cout << "part add:" << part << endl;
+    //cout << "addPart" << endl;
+    // cout << "part add:" << part << endl;
     /* Sanity check, make sure m_iPartId valid */
-    if ((m_iPartId < 0) || (m_iPartId >= CLOMP_numParts))
+    if ((iPartId < 0) || (iPartId >= CLOMP_numParts))
     {
-        fprintf(stderr, "addPart error: m_iPartId (%i) out of bounds!\n", (int)m_iPartId);
+        fprintf(stderr, "addPart error: m_iPartId (%i) out of bounds!\n", (int)iPartId);
         exit(1);
     }
+
+    // auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, iPartId)))->deref_mut(vScope);
+
+    // /* Sanity check, make sure part not already added! */
+    // if (pPartArryIndexPtr != NULL)
+    // {
+    //     fprintf(stderr, "addPart error: m_iPartId (%i) already initialized!\n",
+    //             (int)iPartId);
+    //     exit(1);
+    // }
+
+    // /* Put part pointer in array */
+    // g_paPartArray->at_mut(vScope, iPartId) = *part;
 
     DerefScope vScope;
-    auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, m_iPartId)))->deref_mut(vScope);
-
-    /* Sanity check, make sure part not already added! */
-    if (pPartArryIndexPtr != NULL)
-    {
-        fprintf(stderr, "addPart error: m_iPartId (%i) already initialized!\n",
-                (int)m_iPartId);
-        exit(1);
-    }
-
-    /* Put part pointer in array */
-    g_paPartArray->at_mut(vScope, m_iPartId) = *part;
-
-    auto pPartObject = part->deref_mut(vScope);
+    auto pPartObject = g_paPartArray[iPartId].deref_mut(vScope);
 
     /* Set m_iPartId */
-    pPartObject->m_iPartId = m_iPartId;
+    pPartObject->m_iPartId = iPartId;
 
     /* Set zone count for part (now fixed, used to be variable */
     pPartObject->m_iZoneCount = CLOMP_zonesPerPart;
@@ -994,7 +992,7 @@ void addPart(SharedPtr<CPart> *part, unsigned long m_iPartId)
      *
      * The older m_dDeposit_ratio only really worked well for 100 zones.
      */
-    pPartObject->m_dDeposit_ratio = ((double)((1.5 * (double)CLOMP_numParts) + m_iPartId)) /
+    pPartObject->m_dDeposit_ratio = ((double)((1.5 * (double)CLOMP_numParts) + iPartId)) /
                                     ((double)(CLOMP_zonesPerPart * CLOMP_numParts));
 
     /* Initially no m_dResidue from previous passes */
@@ -1013,64 +1011,73 @@ void addPart(SharedPtr<CPart> *part, unsigned long m_iPartId)
  * to facilitate the zones being allocated in various ways (such as by
  * different threads, randomly, etc.)
  */
-void addZone(SharedPtr<CPart> *part, SharedPtr<CZone> *zone)
+void addZone(unsigned long iPartId, unsigned long iZoneID)
 {
-    // cout << "addZone"<<endl;
-    DerefScope vOuterScope;
-    /* Sanity check, make sure not NULL */
-    if (part->deref_mut(vOuterScope) == nullptr)
+    //cout << "addZone" << endl;
+
+    DerefScope vScope;
+
+    // u_int64_t iZoneVectorCurrentZize = g_paZoneArray.size();
+    //  g_paZoneArray.push_back(&far_mem_manager->allocate_shared_ptr<CZone>());
+    //  auto raw_zone_ptr = new CZone();
+    //  raw_zone_ptr->value = 15;
+    //  cout << "raw_mut_ptr:" << raw_zone_ptr << endl;
+    //  g_paZoneArray[iZoneVectorCurrentZize]->write(*raw_zone_ptr);
+    //  cout << "g_paZoneArray[iZoneVectorCurrentZize].deref_mut(vScope)->value:" << g_paZoneArray[iZoneVectorCurrentZize]->deref_mut(vScope)->value << endl;
+
+    // cout << "g_paZoneArray[iZoneVectorCurrentZize]:" << g_paZoneArray[iZoneVectorCurrentZize] << endl;
+
+    SharedPtr<CZone> *current_part_lastZone_far_mem_ptr = nullptr;
     {
-        fprintf(stderr, "addZone error: part NULL!\n");
-        exit(1);
+        DerefScope vOuterScope;
+        current_part_lastZone_far_mem_ptr = g_paPartArray[iPartId].deref_mut(vOuterScope)->m_pLastZone;
     }
-
-    /* Sanity check, make sure zone not NULL */
-    if (zone->deref_mut(vOuterScope) == nullptr)
-    {
-        fprintf(stderr, "addZone error: zone NULL!\n");
-        exit(1);
-    }
-
-    /* Touch/initialize all of zone to force all memory to be really
-     * allocated (CLOMP_zoneSize is often bigger than the portion of the
-     * zone we use)
-     */
-    // memset(zone, 0xFF, CLOMP_zoneSize);
-    // cout << "Allocating new zone\n";
-    auto *new_zone = new CZone();
-
-    // cout << "Setting new zone new zone\n";
-    // auto zonePtr = zone->deref_mut(vScope);
-    zone->write(*new_zone);
+    //cout << "g_paZoneArray[iPartId][iZoneID]:" << &g_paZoneArray[iPartId][iZoneID] << endl;
 
     /* If not existing zones, place at head of list */
-    if (part->deref_mut(vOuterScope)->m_pLastZone == nullptr)
+    if (current_part_lastZone_far_mem_ptr == nullptr)
     {
+        //cout << "Entered in If block.\n";
         DerefScope vInternalScope;
         /* Give first zone a zoneId of 1 */
-        zone->deref_mut(vInternalScope)->m_iZoneId = 1;
+        g_paZoneArray[iPartId][iZoneID].deref_mut(vInternalScope)->m_iZoneId = 1;
 
         /* First and last zone */
-        part->deref_mut(vInternalScope)->m_pFirstZone = zone;
-        part->deref_mut(vInternalScope)->m_pLastZone = zone;
+        g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pFirstZone = &g_paZoneArray[iPartId][iZoneID];
+        g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone = &g_paZoneArray[iPartId][iZoneID];
+        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope) << endl;
+        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone << endl;
+        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope) << endl;
+        //cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->value << endl;
     }
     else /* Otherwise, put after last zone */
     {
-        DerefScope vInternalScope;
-        // cout << "Entered in else block" << endl;
-        /* Give this zone the last Zone's id + 1 */
-        zone->deref_mut(vInternalScope)->m_iZoneId = part->deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_iZoneId + 1;
+        //cout << "Entered in else block.\n";
 
-        part->deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_pNextZone = zone;
-        part->deref_mut(vInternalScope)->m_pLastZone = zone;
+        DerefScope vInternalScope;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope) << endl;
+
+        // cout << "g_paZoneArray[iZoneVectorCurrentZize].deref_mut(vInternalScope):" << g_paZoneArray[iZoneVectorCurrentZize]->deref_mut(vInternalScope) << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope) << endl;
+        g_paZoneArray[iPartId][iZoneID].deref_mut(vInternalScope)->m_iZoneId = g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_iZoneId + 1;
+
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope):" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope) << endl;
+        // cout << "g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_pNextZone:" << g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_pNextZone << endl;
+        g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone->deref_mut(vInternalScope)->m_pNextZone = &g_paZoneArray[iPartId][iZoneID];
+        g_paPartArray[iPartId].deref_mut(vInternalScope)->m_pLastZone = &g_paZoneArray[iPartId][iZoneID];
     }
 
-    /* Always placed at end */
-    zone->deref_mut(vOuterScope)->m_pNextZone = nullptr;
+    {
+        DerefScope vInternalScope;
+        auto zone_raw_ptr = g_paZoneArray[iPartId][iZoneID].deref_mut(vInternalScope);
 
-    /* Inialized the rest of the zone fields */
-    zone->deref_mut(vOuterScope)->m_iPartId = part->deref_mut(vOuterScope)->m_iPartId;
-    zone->deref_mut(vOuterScope)->value = 0.0;
+        /* Inialized the rest of the zone fields */
+        zone_raw_ptr->m_pNextZone = nullptr;
+        zone_raw_ptr->m_iPartId = g_paPartArray[iPartId].deref_mut(vInternalScope)->m_iPartId;
+        zone_raw_ptr->value = 0.0;
+    }
+
     // cout << "addZone done for PartID: "<< PartID << "ZoneID"<<endl;
 }
 
@@ -1106,10 +1113,8 @@ void _main(void *arg)
     constexpr static uint32_t kNumConnections = 300;
 
     auto raddr = helpers::str_to_netaddr(ip_addr_port);
-    auto manager = std::unique_ptr<FarMemManager>(FarMemManagerFactory::build(
-        kCacheSize, kNumGCThreads, new TCPDevice(raddr, kNumConnections, kFarMemSize)));
-
-    // FarMemManager *far_mem_manager = manager.get();
+    auto manager = std::unique_ptr<FarMemManager>(FarMemManagerFactory::build(kCacheSize, kNumGCThreads, new TCPDevice(raddr, kNumConnections, kFarMemSize)));
+    far_mem_manager = manager.get();
 
     /* Get executable name by pointing to argv[0] */
     CLOMP_exe_name = argv[0];
@@ -1201,22 +1206,46 @@ void _main(void *arg)
 
     /* Allocate part pointer array */
     // PORT - initialize g_paPartArray with AIFM
-    auto Temp_partArray = manager->allocate_array<SharedPtr<CPart>, CLOMP_numParts>();
-    g_paPartArray = &Temp_partArray;
-    if (&g_paPartArray == nullptr)
+    // auto Temp_partArray = manager->allocate_array<SharedPtr<CPart>, CLOMP_numParts>();
+    // g_paPartArray = &Temp_partArray;
+    // if (&g_paPartArray == nullptr)
+    // {
+    //     fprintf(stderr, "Out of memory allocate part array\n");
+    //     exit(1);
+    // }
+
+    for (uint64_t i = 0; i < CLOMP_numParts; i++)
     {
-        fprintf(stderr, "Out of memory allocate part array\n");
-        exit(1);
+        auto part_far_mem_ptr = far_mem_manager->allocate_shared_ptr<CPart>();
+        {
+            DerefScope scope;
+            auto raw_mut_ptr = part_far_mem_ptr.deref_mut(scope);
+            raw_mut_ptr = new CPart();
+        }
+        g_paPartArray.emplace_back(std::move(part_far_mem_ptr));
+
+        std::vector<SharedPtr<CZone>> TempVect;
+        for (uint64_t j = 0; j < CLOMP_zonesPerPart; j++)
+        {
+            auto zone_far_mem_ptr = far_mem_manager->allocate_shared_ptr<CZone>();
+            {
+                DerefScope scope;
+                auto raw_mut_ptr = zone_far_mem_ptr.deref_mut(scope);
+                raw_mut_ptr = new CZone();
+            }
+            TempVect.emplace_back(zone_far_mem_ptr);
+        }
+        g_paZoneArray.emplace_back(TempVect);
     }
 
     // PORT - initialize g_paPartArray to NULL
 
-    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
-    {
-        DerefScope vScope;
-        auto arryIndexPtr = &(g_paPartArray->at_mut(vScope, iPartId));
-        arryIndexPtr = nullptr;
-    }
+    // for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
+    // {
+    //     DerefScope vScope;
+    //     auto arryIndexPtr = g_paPartArray[iPartId].deref_mut(vScope);
+    //     arryIndexPtr = nullptr;
+    // }
 
     /* Calculate 1/numParts to prevent divides in algorithm */
     CLOMP_partRatio = 1.0 / ((double)CLOMP_numParts);
@@ -1229,26 +1258,22 @@ void _main(void *arg)
 
     for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        auto part = manager->allocate_shared_ptr<CPart>();
-        addPart(&part, iPartId);
-        cout << "part added: " << iPartId << "\n";
+        // auto part = manager->allocate_shared_ptr<CPart>();
+        addPart(iPartId);
+        // cout << "part added: " << iPartId << "\n";
     }
-    cout << "part added Done\n";
+    cout << "Parts added successfully.\n";
 
     for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
         uint64_t zoneId;
         for (zoneId = 0; zoneId < CLOMP_zonesPerPart; zoneId++)
         {
-            auto zone = manager->allocate_shared_ptr<CZone>();
-            CZone *pNewZone = new CZone();
-            zone.write(*pNewZone);
-
-            DerefScope vScope;
-            addZone(&(g_paPartArray->at_mut(vScope, iPartId)), &zone);
-            cout << "Zone added: " << zoneId << "\n";
+            addZone(iPartId, zoneId);
         }
     }
+
+    cout << "Zones added successfully.\n";
 
     /* Calculate the total number of zones */
     totalZoneCount = (double)CLOMP_numParts * (double)CLOMP_zonesPerPart;
@@ -1301,17 +1326,20 @@ void _main(void *arg)
     {
         /* Do serial calculation of percent m_dResidue */
 
-        DerefScope vScope;
-        auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, iPartId)));
-        auto pPartArryIndexPtrAddress = pPartArryIndexPtr->deref_mut(vScope);
+        update_part(iPartId, deposit);
 
-        update_part(pPartArryIndexPtr, deposit);
-        percent_residue += pPartArryIndexPtrAddress->m_dResidue;
+        CPart *part_raw_ptr = nullptr;
+        {
+            DerefScope vScope;
+            part_raw_ptr = g_paPartArray[iPartId].deref_mut(vScope);
+        }
+        cout<<"part_raw_ptr:"<<part_raw_ptr<<endl;
+        percent_residue += part_raw_ptr->m_dResidue;
 
         /* The 'next' deposit is smaller than any actual deposit made in
          * this part.  So it is a good lower bound on deposit size.
          */
-        part_deposit_bound = pPartArryIndexPtrAddress->m_dResidue * pPartArryIndexPtrAddress->m_dDeposit_ratio;
+        part_deposit_bound = part_raw_ptr->m_dResidue * part_raw_ptr->m_dDeposit_ratio;
 
         /* If we use the smallest bound on any part, we should have the
          * biggest error bound that will not give false negatives on
@@ -1321,7 +1349,7 @@ void _main(void *arg)
         {
 #if 0
 	    printf ("After part %i bound from %g to %g (deposit %g)\n", (int)m_iPartId,
-		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
+		    CLOMP_error_bound, part_deposit_bound, part_raw_ptr->m_dDeposit_ratio);
 #endif
             CLOMP_error_bound = part_deposit_bound;
         }
@@ -1329,16 +1357,16 @@ void _main(void *arg)
 	else
 	{
 	    printf ("After part %i bound stayed %g because %g (deposit %g)\n", (int)m_iPartId,
-		    CLOMP_error_bound, part_deposit_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
+		    CLOMP_error_bound, part_deposit_bound, part_raw_ptr->m_dDeposit_ratio);
 	}
 #endif
 
-        deposit_diff_bound = part_deposit_bound * pPartArryIndexPtrAddress->m_dDeposit_ratio;
+        deposit_diff_bound = part_deposit_bound * part_raw_ptr->m_dDeposit_ratio;
         if (CLOMP_tightest_error_bound > deposit_diff_bound)
         {
 #if 0
 	    printf ("After part %i tightest bound from %g to %g (deposit %g)\n", (int)m_iPartId,
-		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
+		    CLOMP_tightest_error_bound, deposit_diff_bound, part_raw_ptr->m_dDeposit_ratio);
 #endif
             CLOMP_tightest_error_bound = deposit_diff_bound;
         }
@@ -1346,7 +1374,7 @@ void _main(void *arg)
 	else
 	{
 	    printf ("After part %i tightest bound stayed %g because %g (deposit %g)\n", (int)m_iPartId,
-		    CLOMP_tightest_error_bound, deposit_diff_bound, pPartArryIndexPtrAddress->m_dDeposit_ratio);
+		    CLOMP_tightest_error_bound, deposit_diff_bound, part_raw_ptr->m_dDeposit_ratio);
 	}
 #endif
     }
@@ -1374,9 +1402,12 @@ void _main(void *arg)
      * so calculate the ratio to get correct value. -JCG 17Dec2013
      */
     {
-        DerefScope vScope;
-        auto pPartArryFirstIndexPtr = (&(g_paPartArray->at_mut(vScope, 0)))->deref_mut(vScope);
-        CLOMP_residue_ratio_part0 = percent_residue / pPartArryFirstIndexPtr->m_dResidue;
+        CPart *zero_index_part_raw_ptr = nullptr;
+        {
+            DerefScope vScope;
+            zero_index_part_raw_ptr = g_paPartArray[0].deref_mut(vScope);
+        }
+        CLOMP_residue_ratio_part0 = percent_residue / zero_index_part_raw_ptr->m_dResidue;
     }
 
     /* Set the number of threads for the computation seciton to what user
@@ -1471,12 +1502,7 @@ void _main(void *arg)
 #define us_loop(sec) (((sec * 1000000.0) / ((double)CLOMP_num_iterations * 10.0)))
     printf("us/Loop, %7.2f, %7.2f\n",
            us_loop(calc_deposit_seconds),
-           // us_loop(omp_barrier_seconds),
            us_loop(serial_ref_seconds));
-    // us_loop(bestcase_omp_seconds),
-    // us_loop(static_omp_seconds),
-    // us_loop(dynamic_omp_seconds),
-    // us_loop(manual_omp_seconds));
 
 #undef speedup
 #define speedup(sec) ((serial_ref_seconds / sec))
@@ -1516,7 +1542,6 @@ int main(int _argc, char *argv[])
         argv[i - 1] = argv[i];
     }
     argc = _argc - 2;
-
 
     ret = runtime_init(conf_path, _main, argv);
     if (ret)

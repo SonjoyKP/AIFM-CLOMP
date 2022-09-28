@@ -1,4 +1,5 @@
-extern "C" {
+extern "C"
+{
 #include <runtime/runtime.h>
 }
 
@@ -20,7 +21,8 @@ constexpr uint64_t kFarMemSize = (1ULL << 33); // 8 GB.
 constexpr uint64_t kWorkSetSize = 1 << 30;
 constexpr uint64_t kNumGCThreads = 12;
 
-struct Data4096 {
+struct Data4096
+{
   char data[4096];
 };
 
@@ -28,11 +30,13 @@ using Data_t = struct Data4096;
 
 constexpr uint64_t kNumEntries = kWorkSetSize / sizeof(Data_t);
 
-void do_work(FarMemManager *manager) {
+void do_work(FarMemManager *manager)
+{
   std::vector<SharedPtr<Data_t>> vec0;
   cout << "Running " << __FILE__ "..." << endl;
 
-  for (uint64_t i = 0; i < kNumEntries; i++) {
+  for (uint64_t i = 0; i < kNumEntries; i++)
+  {
     auto far_mem_ptr = manager->allocate_shared_ptr<Data_t>();
     {
       DerefScope scope;
@@ -43,14 +47,18 @@ void do_work(FarMemManager *manager) {
   }
   auto vec1 = vec0;
 
-  auto check_fn = [](auto vec) {
-    for (uint64_t i = 0; i < kNumEntries; i++) {
+  auto check_fn = [](auto vec)
+  {
+    for (uint64_t i = 0; i < kNumEntries; i++)
+    {
       {
         DerefScope scope;
         const auto raw_const_ptr = vec[i].deref(scope);
-        for (uint32_t j = 0; j < sizeof(Data_t); j++) {
-          if (raw_const_ptr->data[j] != static_cast<char>(i)) {
-	    return false;
+        for (uint32_t j = 0; j < sizeof(Data_t); j++)
+        {
+          if (raw_const_ptr->data[j] != static_cast<char>(i))
+          {
+            return false;
           }
         }
       }
@@ -58,10 +66,12 @@ void do_work(FarMemManager *manager) {
     return true;
   };
 
-  if (!check_fn(vec0)) {
+  if (!check_fn(vec0))
+  {
     goto fail;
   }
-  if (!check_fn(vec1)) {
+  if (!check_fn(vec1))
+  {
     goto fail;
   }
 
@@ -73,22 +83,26 @@ fail:
   return;
 }
 
-void _main(void *arg) {
+void _main(void *arg)
+{
   auto manager = std::unique_ptr<FarMemManager>(FarMemManagerFactory::build(
       kCacheSize, kNumGCThreads, new FakeDevice(kFarMemSize)));
   do_work(manager.get());
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   int ret;
 
-  if (argc < 2) {
+  if (argc < 2)
+  {
     std::cerr << "usage: [cfg_file]" << std::endl;
     return -EINVAL;
   }
 
   ret = runtime_init(argv[1], _main, NULL);
-  if (ret) {
+  if (ret)
+  {
     std::cerr << "failed to start runtime" << std::endl;
     return ret;
   }
