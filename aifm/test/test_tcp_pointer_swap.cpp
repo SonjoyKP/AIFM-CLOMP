@@ -78,6 +78,8 @@ ADDITIONAL BSD NOTICE
    endorsement purposes.
 ******************************************************************************/
 
+// I have to follow "test_shared_pointer.cpp" to implement the memory management
+
 extern "C"
 {
 #include <runtime/runtime.h>
