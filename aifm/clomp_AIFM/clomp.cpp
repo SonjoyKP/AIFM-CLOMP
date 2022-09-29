@@ -101,7 +101,7 @@ extern "C"
 using namespace far_memory;
 using namespace std;
 
-constexpr unsigned long CLOMP_numThreads = 16;     /* > 0 or -1 valid */
+constexpr unsigned long CLOMP_numThreads = 16;    /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_allocThreads = 1;   /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_numParts = 16;      /* > 0 valid */
 constexpr unsigned long CLOMP_zonesPerPart = 400; /* > 0 valid */
@@ -109,7 +109,7 @@ constexpr unsigned long CLOMP_zoneSize = 32;      /* > 0 valid, (sizeof(Zone) tr
 constexpr unsigned long CLOMP_flopScale = 1;      /* > 0 valid, 1 nominal */
 constexpr unsigned long CLOMP_timeScale = 100;    /* > 0 valid, 100 nominal */
 
-char *CLOMP_exe_name = NULL; /* Points to argv[0] */
+char *CLOMP_exe_name = nullptr; /* Points to argv[0] */
 
 /* Save actual argument for summary at end */
 long CLOMP_inputAllocThreads = 1;
@@ -215,10 +215,9 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
     char *endPtr;
 
     /* Sanity check */
-    if ((parm_name == NULL) || (parm_val == NULL))
+    if ((parm_name == nullptr) || (parm_val == nullptr))
     {
-        fprintf(stderr,
-                "Error in convert_to_positive_long: Passed NULL pointers!\n");
+        printf("Error in convert_to_positive_long: Passed nullptr pointers!\n");
         exit(1);
     }
 
@@ -294,18 +293,22 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            DerefScope vScope;
-            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope); zone->m_pNextZone != nullptr;
-                 zone = zone->m_pNextZone->deref_mut(vScope))
+
+            for (auto zone = part_raw_ptr->m_pFirstZone; zone != nullptr;)
             {
+                DerefScope vScope;
+                auto zone_raw_ptr = zone->deref_mut(vScope);
                 /* Calculate the deposit for this zone */
                 deposit = remaining_deposit * m_dDeposit_ratio;
 
                 /* Add deposit to the zone's value */
-                zone->value += deposit;
+                zone_raw_ptr->value += deposit;
 
                 /* Remove deposit from the remaining_deposit */
                 remaining_deposit -= deposit;
+
+                // loop interation
+                zone = zone_raw_ptr->m_pNextZone;
             }
         }
 
@@ -316,10 +319,12 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
              * remaining_deposit in the zone and carrying the rest to the remaining
              * zones
              */
-            DerefScope vScope;
-            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
-                 zone->m_pNextZone != NULL; zone = zone->m_pNextZone->deref_mut(vScope))
+
+            for (auto zone = part_raw_ptr->m_pFirstZone; zone != nullptr;)
             {
+                DerefScope vScope;
+                auto zone_raw_ptr = zone->deref_mut(vScope);
+
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
@@ -329,11 +334,14 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
                     deposit = remaining_deposit * m_dDeposit_ratio;
 
                     /* Add deposit to the zone's value */
-                    zone->value += deposit;
+                    zone_raw_ptr->value += deposit;
 
                     /* Remove deposit from the remaining_deposit */
                     remaining_deposit -= deposit;
                 }
+
+                // loop interation
+                zone = zone_raw_ptr->m_pNextZone;
             }
         }
 
@@ -356,15 +364,16 @@ void reinitialize_parts()
             part_raw_ptr = g_paPartArray[pidx].deref_mut(vInternalScope);
         }
 
+        for (auto zone = part_raw_ptr->m_pFirstZone; zone != nullptr;)
         {
-            DerefScope vInternalScope;
-            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vInternalScope);
-                 zone->m_pNextZone != NULL;
-                 zone = zone->m_pNextZone->deref_mut(vInternalScope))
-            {
-                /* Reset zone's value to 0 */
-                zone->value = 0.0;
-            }
+            DerefScope vScope;
+            auto zone_raw_ptr = zone->deref_mut(vScope);
+
+            /* Reset zone's value to 0 */
+            zone_raw_ptr->value = 0.0;
+
+            // loop interation
+            zone = zone_raw_ptr->m_pNextZone;
         }
 
         /* Reset m_dResidue */
@@ -415,7 +424,7 @@ void print_start_message(const char *desc)
 /* Helper routine that puts time of day into passed ts structure */
 void get_timestamp(struct timeval *ts)
 {
-    if (gettimeofday(ts, NULL) != 0)
+    if (gettimeofday(ts, nullptr) != 0)
     {
         fprintf(stderr, "Unable to get time of day, exiting\n");
         exit(1);
@@ -565,30 +574,30 @@ void print_data_stats(const char *desc)
         }
         /* Use first zone's value as initial last_value */
 
+        /* Scan through zones checking that values decrease monotonically */
+        for (auto zone = part_raw_ptr->m_pFirstZone; zone != nullptr;)
         {
             DerefScope vScope;
-
-            /* Scan through zones checking that values decrease monotonically */
-            for (auto zone = part_raw_ptr->m_pFirstZone->deref_mut(vScope);
-                 zone->m_pNextZone != NULL;
-                 zone = zone->m_pNextZone->deref_mut(vScope))
+            auto zone_raw_ptr = zone->deref_mut(vScope);
+            if (zone_raw_ptr->value > last_value)
             {
-                if (zone->value > last_value)
-                {
-                    printf("*** %s check failure (part %i zone %i): "
-                           "previous (%g) < current (%g)!\n",
-                           desc, (int)zone->m_iPartId,
-                           (int)zone->m_iZoneId, last_value, zone->value);
-                    error_count++;
-                }
-
-                /* Sum up values */
-                value_sum += zone->value;
-
-                /* This value now is last_value */
-                last_value = zone->value;
+                printf("*** %s check failure (part %i zone %i): "
+                       "previous (%g) < current (%g)!\n",
+                       desc, (int)zone_raw_ptr->m_iPartId,
+                       (int)zone_raw_ptr->m_iZoneId, last_value, zone_raw_ptr->value);
+                error_count++;
             }
+
+            /* Sum up values */
+            value_sum += zone_raw_ptr->value;
+
+            /* This value now is last_value */
+            last_value = zone_raw_ptr->value;
+
+            // loop interation
+            zone = zone_raw_ptr->m_pNextZone;
         }
+
         /* Sum up part m_dResidue's */
         residue_sum += part_raw_ptr->m_dResidue;
     }
@@ -1412,15 +1421,15 @@ void _main(void *arg)
                us_loop(serial_ref_seconds));
     }
 
-    for(auto iPartsIndex= 0; iPartsIndex< g_paPartArray.size(); iPartsIndex++)
+    for (auto iPartsIndex = 0; iPartsIndex < g_paPartArray.size(); iPartsIndex++)
     {
         g_paPartArray[iPartsIndex].free();
     }
     cout << "Allocated Parts cleanup done.\n";
 
-    for(int iPartsIndex= 0; iPartsIndex< g_paZoneArray.size(); iPartsIndex++)
+    for (auto iPartsIndex = 0; iPartsIndex < g_paZoneArray.size(); iPartsIndex++)
     {
-        for(auto iZoneIndex = 0; iZoneIndex< g_paZoneArray[iPartsIndex].size(); iZoneIndex++)
+        for (auto iZoneIndex = 0; iZoneIndex < g_paZoneArray[iPartsIndex].size(); iZoneIndex++)
         {
             g_paZoneArray[iPartsIndex][iZoneIndex].free();
         }
