@@ -101,7 +101,7 @@ extern "C"
 using namespace far_memory;
 using namespace std;
 
-constexpr unsigned long CLOMP_numThreads = 1;     /* > 0 or -1 valid */
+constexpr unsigned long CLOMP_numThreads = 16;     /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_allocThreads = 1;   /* > 0 or -1 valid */
 constexpr unsigned long CLOMP_numParts = 16;      /* > 0 valid */
 constexpr unsigned long CLOMP_zonesPerPart = 400; /* > 0 valid */
@@ -1411,6 +1411,22 @@ void _main(void *arg)
                CLOMP_timeScale,
                us_loop(serial_ref_seconds));
     }
+
+    for(auto iPartsIndex= 0; iPartsIndex< g_paPartArray.size(); iPartsIndex++)
+    {
+        g_paPartArray[iPartsIndex].free();
+    }
+    cout << "Allocated Parts cleanup done.\n";
+
+    for(int iPartsIndex= 0; iPartsIndex< g_paZoneArray.size(); iPartsIndex++)
+    {
+        for(auto iZoneIndex = 0; iZoneIndex< g_paZoneArray[iPartsIndex].size(); iZoneIndex++)
+        {
+            g_paZoneArray[iPartsIndex][iZoneIndex].free();
+        }
+    }
+    cout << "Allocated Zones cleanup done.\n";
+
     cout << "_main() ended successfully.\n";
 }
 
