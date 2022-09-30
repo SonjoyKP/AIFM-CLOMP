@@ -101,15 +101,15 @@ extern "C"
 using namespace far_memory;
 using namespace std;
 
-constexpr unsigned long CLOMP_numThreads = 16;    /* > 0 or -1 valid */
-constexpr unsigned long CLOMP_allocThreads = 1;   /* > 0 or -1 valid */
-constexpr unsigned long CLOMP_numParts = 16;      /* > 0 valid */
-constexpr unsigned long CLOMP_zonesPerPart = 400; /* > 0 valid */
-constexpr unsigned long CLOMP_zoneSize = 32;      /* > 0 valid, (sizeof(Zone) true min)*/
-constexpr unsigned long CLOMP_flopScale = 1;      /* > 0 valid, 1 nominal */
-constexpr unsigned long CLOMP_timeScale = 100;    /* > 0 valid, 100 nominal */
-
-char *CLOMP_exe_name = nullptr; /* Points to argv[0] */
+/* Command line parameters, see usage info (initially -1 for sanity check)*/
+long CLOMP_numThreads = -2;   /* > 0 or -1 valid */
+long CLOMP_allocThreads = -2; /* > 0 or -1 valid */
+long CLOMP_numParts = -1;     /* > 0 valid */
+long CLOMP_zonesPerPart = -1; /* > 0 valid */
+long CLOMP_flopScale = -1;    /* > 0 valid, 1 nominal */
+long CLOMP_timeScale = -1;    /* > 0 valid, 100 nominal */
+long CLOMP_zoneSize = -1;     /* > 0 valid, (sizeof(Zone) true min)*/
+char *CLOMP_exe_name = NULL;  /* Points to argv[0] */
 
 /* Save actual argument for summary at end */
 long CLOMP_inputAllocThreads = 1;
@@ -128,9 +128,9 @@ public:
 class CPart
 {
 public:
-    unsigned long m_iPartId;
-    unsigned long m_iZoneCount;
-    unsigned long m_iUpdate_count;
+    long m_iPartId;
+    long m_iZoneCount;
+    long m_iUpdate_count;
 
     SharedPtr<CZone> *m_pFirstZone = nullptr;
     SharedPtr<CZone> *m_pLastZone = nullptr;
@@ -260,10 +260,9 @@ long convert_to_positive_long(const char *parm_name, const char *parm_val)
     return (val);
 }
 
-void update_part(u_int64_t iPartId, double incoming_deposit)
+void update_part(long iPartId, double incoming_deposit)
 {
     double m_dDeposit_ratio, remaining_deposit, deposit;
-    long scale_count;
     {
         CPart *part_raw_ptr = nullptr;
         {
@@ -328,7 +327,7 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
                 /* Allow scaling of the flops per double loaded, so that you
                  * can get expensive iterations without blowing the cache.
                  */
-                for (scale_count = 0; scale_count < CLOMP_flopScale; scale_count++)
+                for (long scale_count = 0; scale_count < CLOMP_flopScale; scale_count++)
                 {
                     /* Calculate the deposit for this SharedPtr<Zone> */
                     deposit = remaining_deposit * m_dDeposit_ratio;
@@ -353,10 +352,8 @@ void update_part(u_int64_t iPartId, double incoming_deposit)
 /* Resets parts to initial state and warms up cache */
 void reinitialize_parts()
 {
-    unsigned long pidx;
-
     /* Reset all the zone values to 0.0 and the part m_dResidue to 0.0 */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         CPart *part_raw_ptr = nullptr;
         {
@@ -385,7 +382,7 @@ void reinitialize_parts()
 
     /* Scan through zones and add zero to each zone to warm up cache*/
     /* Also sets each zone m_iUpdate_count to 1, which sanity check wants */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, 0.0);
     }
@@ -499,8 +496,6 @@ double print_timestats(const char *desc, struct timeval *start_ts,
 void print_data_stats(const char *desc)
 {
     double value_sum, residue_sum, last_value, dtotal;
-    long pidx;
-    SharedPtr<CZone> *zone;
     int is_reference, error_count;
 
     /* Initialize value and m_dResidue sums to zero */
@@ -524,7 +519,7 @@ void print_data_stats(const char *desc)
      * and sum up all the values.  Also check that the part m_dResidue and
      * the part's first zone's value are the expected value.
      */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         /* If have reference calculation, grab the first zone's value
          * and the part m_dResidue for comparison later
@@ -665,7 +660,6 @@ void print_data_stats(const char *desc)
 double calc_deposit()
 {
     double m_dResidue, deposit;
-    // long pidx;
 
     /* Sanity check, make sure residues have be updated since last calculation
      * This code cannot be pulled out of loops or above loops!
@@ -699,7 +693,7 @@ double calc_deposit()
      *  -JCG 17Dec2013
      *
      * m_dResidue = 0.0;
-     * for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+     * for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
      * {
      *   m_dResidue += g_paPartArray[pidx]->m_dResidue;
      * }
@@ -763,15 +757,13 @@ void do_calc_deposit_only()
 void serial_ref_module1()
 {
     double deposit;
-    long pidx;
-
     /* ---------------- SUBCYCLE 1 OF 1 ----------------- */
 
     /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -781,15 +773,13 @@ void serial_ref_module1()
 void serial_ref_module2()
 {
     double deposit;
-    long pidx;
-
     /* ---------------- SUBCYCLE 1 OF 2 ----------------- */
 
     /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         // DerefScope vScope;
         // auto pPartArryIndexPtr = (&(g_paPartArray->at_mut(vScope, pidx)));
@@ -802,7 +792,7 @@ void serial_ref_module2()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -812,15 +802,13 @@ void serial_ref_module2()
 void serial_ref_module3()
 {
     double deposit;
-    long pidx;
-
     /* ---------------- SUBCYCLE 1 OF 3 ----------------- */
 
     /* Calculate deposit for this subcycle based on last subcycle's m_dResidue */
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -831,7 +819,7 @@ void serial_ref_module3()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -842,7 +830,7 @@ void serial_ref_module3()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -859,7 +847,7 @@ void serial_ref_module4()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -870,7 +858,7 @@ void serial_ref_module4()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -881,7 +869,7 @@ void serial_ref_module4()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -892,7 +880,7 @@ void serial_ref_module4()
     deposit = calc_deposit();
 
     /* Scan through zones and add appropriate deposit to each SharedPtr<Zone> */
-    for (auto pidx = 0; pidx < CLOMP_numParts; pidx++)
+    for (long pidx = 0; pidx < CLOMP_numParts; pidx++)
     {
         update_part(pidx, deposit);
     }
@@ -924,7 +912,7 @@ void do_serial_ref_version()
  * The g_paPartArray has to be allocated by one thread but it is not
  * modified during the run.
  */
-void addPart(unsigned long iPartId)
+void addPart(long iPartId)
 {
     /* Sanity check, make sure m_iPartId valid */
     if ((iPartId < 0) || (iPartId >= CLOMP_numParts))
@@ -973,7 +961,7 @@ void addPart(unsigned long iPartId)
  * to facilitate the zones being allocated in various ways (such as by
  * different threads, randomly, etc.)
  */
-void addZone(unsigned long iPartId, unsigned long iZoneID)
+void addZone(long iPartId, long iZoneID)
 {
     SharedPtr<CZone> *current_part_lastZone_far_mem_ptr = nullptr;
     {
@@ -1025,16 +1013,14 @@ void _main(void *arg)
     char hostname[200];
     time_t starttime;
     char startdate[50]; /* Must be > 26 characters */
-    long iPartId, zoneId;
     double totalZoneCount;
-    double deposit, m_dResidue, percent_residue, part_deposit_bound;
+    double deposit, percent_residue, part_deposit_bound;
     double deposit_diff_bound;
     double diterations;
     struct timeval calc_deposit_start_ts, calc_deposit_end_ts;
     double calc_deposit_seconds;
     struct timeval serial_ref_start_ts, serial_ref_end_ts;
     double serial_ref_seconds;
-    int bidx, aidx;
 
     constexpr static uint64_t kCacheSize = (128ULL << 20);
     constexpr static uint64_t kFarMemSize = (4ULL << 30);
@@ -1052,11 +1038,11 @@ void _main(void *arg)
     printf("CORAL Benchmark Version 1.2\n");
 
     /* Print usage if not 7 arguments */
-    // if (argc != 8)
-    // {
-    //     print_usage();
-    //     exit(1);
-    // }
+    if (argc != 8)
+    {
+        print_usage();
+        exit(1);
+    }
 
     /* Get hostname running on */
     if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -1067,25 +1053,25 @@ void _main(void *arg)
     ctime_r(&starttime, startdate);
 
     /* Read in command line args (all must be positive ints) */
-    // CLOMP_numThreads = convert_to_positive_long("numThreads", argv[1]);
-    // CLOMP_allocThreads = convert_to_positive_long("numThreads", argv[2]);
-    // CLOMP_numParts = convert_to_positive_long("numParts", argv[3]);
-    // CLOMP_zonesPerPart = convert_to_positive_long("zonesPerPart", argv[4]);
-    // CLOMP_zoneSize = convert_to_positive_long("zoneSize", argv[5]);
-    // CLOMP_flopScale = convert_to_positive_long("flopScale", argv[6]);
-    // CLOMP_timeScale = convert_to_positive_long("timeScale", argv[7]);
+    CLOMP_numThreads = convert_to_positive_long("numThreads", argv[1]);
+    CLOMP_allocThreads = convert_to_positive_long("numThreads", argv[2]);
+    CLOMP_numParts = convert_to_positive_long("numParts", argv[3]);
+    CLOMP_zonesPerPart = convert_to_positive_long("zonesPerPart", argv[4]);
+    CLOMP_zoneSize = convert_to_positive_long("zoneSize", argv[5]);
+    CLOMP_flopScale = convert_to_positive_long("flopScale", argv[6]);
+    CLOMP_timeScale = convert_to_positive_long("timeScale", argv[7]);
 
     /* Zone size cannot be less than sizeof(Zone), force to be valid */
-    // if (CLOMP_zoneSize < sizeof(Zone))
-    // {
-    //     printf("***Forcing zoneSize (%ld specified) to minimum zone size %ld\n\n",
-    //            CLOMP_zoneSize, (long)sizeof(Zone));
-    //     //CLOMP_zoneSize = sizeof(Zone);
-    // }
+    if ((long unsigned int)CLOMP_zoneSize < sizeof(CZone))
+    {
+        printf("***Forcing zoneSize (%ld specified) to minimum zone size %ld\n\n",
+               CLOMP_zoneSize, (long)sizeof(CZone));
+        CLOMP_zoneSize = sizeof(CZone);
+    }
 
     /* Print out command line arguments as passed in */
     printf("       Invocation:");
-    for (aidx = 0; aidx < argc; aidx++)
+    for (auto aidx = 0; aidx < argc; aidx++)
     {
         printf(" %s", argv[aidx]);
     }
@@ -1098,11 +1084,10 @@ void _main(void *arg)
     if (CLOMP_numThreads == -1)
     {
         /* Set CLOMP_numThreads to system default if -1 */
-        // CLOMP_numThreads = 1;
+        CLOMP_numThreads = 1;
 
         /* Print out system default for threads */
-        printf("      numThreads: %d (using system default)\n",
-               (int)CLOMP_numThreads);
+        printf("      numThreads: %d (using system default)\n", (int)CLOMP_numThreads);
     }
     else
     {
@@ -1113,14 +1098,13 @@ void _main(void *arg)
     CLOMP_inputAllocThreads = CLOMP_allocThreads;
 
     /* If -1, use numThreads for alloc threads */
-    if (CLOMP_allocThreads == -1)
+    if ((int)CLOMP_allocThreads == -1)
     {
         /* Use numThreads for alloc threads if -1 */
-        // CLOMP_allocThreads = CLOMP_numThreads;
+        CLOMP_allocThreads = CLOMP_numThreads;
 
         /* Print out number of alloc threads to use */
-        printf("    allocThreads: %ld (using numThreads)\n",
-               CLOMP_allocThreads);
+        printf("    allocThreads: %ld (using numThreads)\n", CLOMP_allocThreads);
     }
     else
     {
@@ -1135,33 +1119,25 @@ void _main(void *arg)
     printf("        zoneSize: %ld\n", CLOMP_zoneSize);
 
     /* Allocate part pointer array */
-    // PORT - initialize g_paPartArray with AIFM
-    // auto Temp_partArray = manager->allocate_array<SharedPtr<CPart>, CLOMP_numParts>();
-    // g_paPartArray = &Temp_partArray;
-    // if (&g_paPartArray == nullptr)
-    // {
-    //     fprintf(stderr, "Out of memory allocate part array\n");
-    //     exit(1);
-    // }
-
-    for (uint64_t i = 0; i < CLOMP_numParts; i++)
+    for (long int i = 0; i < CLOMP_numParts; i++)
     {
         auto part_far_mem_ptr = far_mem_manager->allocate_shared_ptr<CPart>();
         {
             DerefScope scope;
-            auto raw_mut_ptr = part_far_mem_ptr.deref_mut(scope);
-            raw_mut_ptr = new CPart();
+            auto raw_part_ptr = part_far_mem_ptr.deref_mut(scope);
+            raw_part_ptr = new CPart();
         }
         g_paPartArray.emplace_back(std::move(part_far_mem_ptr));
 
+        /* Allocate zone pointer array */
         std::vector<SharedPtr<CZone>> TempVect;
-        for (uint64_t j = 0; j < CLOMP_zonesPerPart; j++)
+        for (long int j = 0; j < CLOMP_zonesPerPart; j++)
         {
             auto zone_far_mem_ptr = far_mem_manager->allocate_shared_ptr<CZone>();
             {
                 DerefScope scope;
-                auto raw_mut_ptr = zone_far_mem_ptr.deref_mut(scope);
-                raw_mut_ptr = new CZone();
+                auto raw_zone_ptr = zone_far_mem_ptr.deref_mut(scope);
+                raw_zone_ptr = new CZone();
             }
             TempVect.emplace_back(zone_far_mem_ptr);
         }
@@ -1175,17 +1151,15 @@ void _main(void *arg)
      * Do allocations in thread (allocThreads may be set to 1 for allocate)
      * to allow potentially better memory layout for threads
      */
-    //#pragma omp parallel for private(m_iPartId) schedule(static)
 
-    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
+    for (long iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
         addPart(iPartId);
     }
 
-    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
+    for (long iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
-        uint64_t zoneId;
-        for (zoneId = 0; zoneId < CLOMP_zonesPerPart; zoneId++)
+        for (long int zoneId = 0; zoneId < CLOMP_zonesPerPart; zoneId++)
         {
             addZone(iPartId, zoneId);
         }
@@ -1238,7 +1212,7 @@ void _main(void *arg)
     CLOMP_tightest_error_bound = deposit;
 
     /* Scan through zones and add deposit to each zone */
-    for (iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
+    for (long iPartId = 0; iPartId < CLOMP_numParts; iPartId++)
     {
         /* Do serial calculation of percent m_dResidue */
 
@@ -1421,20 +1395,18 @@ void _main(void *arg)
                us_loop(serial_ref_seconds));
     }
 
-    for (auto iPartsIndex = 0; iPartsIndex < g_paPartArray.size(); iPartsIndex++)
+    for (long unsigned int iPartsIndex = 0; iPartsIndex < g_paPartArray.size(); iPartsIndex++)
     {
         g_paPartArray[iPartsIndex].free();
     }
-    cout << "Allocated Parts cleanup done.\n";
 
-    for (auto iPartsIndex = 0; iPartsIndex < g_paZoneArray.size(); iPartsIndex++)
+    for (long unsigned int iPartsIndex = 0; iPartsIndex < g_paZoneArray.size(); iPartsIndex++)
     {
-        for (auto iZoneIndex = 0; iZoneIndex < g_paZoneArray[iPartsIndex].size(); iZoneIndex++)
+        for (long unsigned int iZoneIndex = 0; iZoneIndex < g_paZoneArray[iPartsIndex].size(); iZoneIndex++)
         {
             g_paZoneArray[iPartsIndex][iZoneIndex].free();
         }
     }
-    cout << "Allocated Zones cleanup done.\n";
 
     cout << "_main() ended successfully.\n";
 }
@@ -1449,12 +1421,18 @@ int main(int _argc, char *argv[])
         return -EINVAL;
     }
 
+    cout << "_argc:" << _argc << endl;
+    for (int i = 0; i < _argc; i++)
+    {
+        printf("argv[%d]:%s\n", i, argv[i]);
+    }
+
     char conf_path[strlen(argv[1]) + 1];
     strcpy(conf_path, argv[1]);
     ip_addr_port.assign(argv[2]);
     for (int i = 3; i < _argc; i++)
     {
-        argv[i - 1] = argv[i];
+        argv[i - 2] = argv[i];
     }
     argc = _argc - 2;
 
