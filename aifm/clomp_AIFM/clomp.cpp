@@ -543,9 +543,14 @@ void print_data_stats(const char *desc)
          */
         else
         {
-            DerefScope vScope;
+            auto firstZoneValue = 0.0;
+            {
+                DerefScope vScope;
+                firstZoneValue = part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value;
+            }
+
             /* Check that first zone's value is what is expected */
-            if (part_raw_ptr->m_dExpected_first_value != part_raw_ptr->m_pFirstZone->deref_mut(vScope)->value)
+            if (part_raw_ptr->m_dExpected_first_value != firstZoneValue)
             {
                 DerefScope vScope;
                 error_count++;
