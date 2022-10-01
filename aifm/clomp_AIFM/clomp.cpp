@@ -1426,12 +1426,6 @@ int main(int _argc, char *argv[])
         return -EINVAL;
     }
 
-    cout << "_argc:" << _argc << endl;
-    for (int i = 0; i < _argc; i++)
-    {
-        printf("argv[%d]:%s\n", i, argv[i]);
-    }
-
     char conf_path[strlen(argv[1]) + 1];
     strcpy(conf_path, argv[1]);
     ip_addr_port.assign(argv[2]);
